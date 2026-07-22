@@ -5,11 +5,13 @@ import { createServerClient } from "@supabase/ssr";
  * Маршруты, доступные без входа.
  * /api/intake и /api/webhooks — приём заявок с сайтов, событий чат-бота и Telegram:
  * там свой токен вместо сессии, и редирект на /login сломал бы интеграцию у клиента.
+ * /api/cron — почасовая синхронизация рекламы: её дёргает Vercel, а не человек,
+ * и проверяется она секретом CRON_SECRET.
  *
  * На Vercel этого мало: если включить Deployment Protection, до маршрута
  * запрос вообще не дойдёт. Смотри README, раздел «Деплой».
  */
-const PUBLIC_ROUTES = ["/login", "/api/intake", "/api/webhooks"];
+const PUBLIC_ROUTES = ["/login", "/api/intake", "/api/webhooks", "/api/cron"];
 
 /**
  * Обновляет сессию Supabase на каждом запросе и не пускает гостя в кабинет.

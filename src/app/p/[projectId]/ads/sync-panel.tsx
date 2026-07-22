@@ -12,14 +12,18 @@ const INITIAL_STATE: AdsSyncState = { error: null, message: null };
 function SubmitButton({ connected }: { connected: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending || !connected}>
+    <Button type="submit" variant="secondary" disabled={pending || !connected}>
       <Icon name="ads" className="h-[18px] w-[18px]" />
-      {pending ? "Тянем из Meta…" : "Синхронизировать"}
+      {pending ? "Тянем из Meta…" : "Обновить сейчас"}
     </Button>
   );
 }
 
-/** Кнопка синхронизации: результат и ошибку Meta показываем словами, а не кодом. */
+/**
+ * Обновление рекламы вручную.
+ * Основную работу делает почасовое расписание — эта кнопка на случай,
+ * когда ждать час не хочется. Результат и ошибку Meta показываем словами.
+ */
 export function SyncPanel({
   projectId,
   connected,
