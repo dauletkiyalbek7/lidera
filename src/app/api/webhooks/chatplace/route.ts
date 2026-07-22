@@ -7,6 +7,7 @@ import {
   hashChatToken,
   parseChatEvent,
 } from "@/lib/chat";
+import type { ChatReferral } from "@/lib/chat";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
@@ -19,6 +20,43 @@ const MAX_BODY_BYTES = 32 * 1024;
 
 function json(status: number, body: Record<string, unknown>) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
+/**
+ * Находит объявление по идентификатору из рекламного кабинета, а если такого
+ * ещё нет — заводит.
+ *
+ * Заводить приходится: синхронизация с Meta может отстать, а заявка уже пришла.
+ * Потерять её привязку хуже, чем на время подержать строку с одним id — при
+ * следующей синхронизации она дополнится названием и картинкой.
+ */
+async function resolveCreativeId(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  projectId: string,
+  referral: ChatReferral,
+): Promise<string | null> {
+  const { data: found } = await admin
+    .from("creatives")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("platform", "meta")
+    .eq("external_id", referral.adExternalId)
+    .maybeSingle();
+
+  if (found) return found.id;
+
+  const { data: created } = await admin
+    .from("creatives")
+    .insert({
+      project_id: projectId,
+      name: referral.headline ?? `Объявление ${referral.adExternalId}`,
+      platform: "meta",
+      external_id: referral.adExternalId,
+    })
+    .select("id")
+    .maybeSingle();
+
+  return created?.id ?? null;
 }
 
 function readToken(request: NextRequest): string | null {
@@ -65,15 +103,24 @@ export async function POST(request: NextRequest) {
   // Телефон из полей события надёжнее; если его нет — ищем в тексте сообщения.
   const phone = event.contactPhone ?? extractPhone(event.body);
 
+  // Meta присылает объявление только с первым сообщением, поэтому запоминаем
+  // его на переписке: телефон может появиться намного позже.
+  const creativeId = event.referral
+    ? await resolveCreativeId(admin, projectId, event.referral)
+    : null;
+
   const { data: existing } = await admin
     .from("chat_conversations")
-    .select("id, message_count, lead_id, contact_phone, contact_name")
+    .select("id, message_count, lead_id, contact_phone, contact_name, creative_id")
     .eq("project_id", projectId)
     .eq("channel", event.channel)
     .eq("external_id", event.externalId)
     .maybeSingle();
 
   let conversationId = existing?.id ?? null;
+  // Первая реклама сильнее: если человек вернулся по другому объявлению,
+  // заявку всё равно принесло первое.
+  const conversationCreativeId = existing?.creative_id ?? creativeId;
 
   if (existing) {
     await admin
@@ -84,6 +131,8 @@ export async function POST(request: NextRequest) {
         last_message: event.body,
         last_message_at: now,
         message_count: existing.message_count + 1,
+        creative_id: conversationCreativeId,
+        ...(event.referral?.headline ? { ad_headline: event.referral.headline } : {}),
       })
       .eq("id", existing.id);
   } else {
@@ -98,6 +147,8 @@ export async function POST(request: NextRequest) {
         last_message: event.body,
         last_message_at: now,
         message_count: 1,
+        creative_id: creativeId,
+        ad_headline: event.referral?.headline ?? null,
       })
       .select("id")
       .single();
@@ -128,6 +179,7 @@ export async function POST(request: NextRequest) {
         phone: phone ?? knownPhone,
         source,
         status: "new",
+        creative_id: conversationCreativeId,
       })
       .select("id")
       .single();
@@ -143,7 +195,7 @@ export async function POST(request: NextRequest) {
         project_id: projectId,
         actor_id: null,
         action: "chat.lead_created",
-        details: { channel: event.channel, source },
+        details: { channel: event.channel, source, creative_id: conversationCreativeId },
       });
     }
   }
@@ -158,6 +210,9 @@ export async function POST(request: NextRequest) {
     conversation_id: conversationId,
     lead_id: leadId,
     phone_found: Boolean(phone ?? knownPhone),
+    // Видно в ответе, чтобы при подключении ChatPlace сразу понять,
+    // доезжает ли до нас объявление или его надо искать в другом поле.
+    ad_external_id: event.referral?.adExternalId ?? null,
   });
 }
 

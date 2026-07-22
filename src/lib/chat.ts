@@ -119,6 +119,18 @@ const MAX_NAME = 200;
 const MAX_BODY = 2000;
 const MAX_ID = 200;
 
+/**
+ * Объявление, из которого человек написал.
+ *
+ * Meta прикладывает блок `referral` к первому сообщению после клика по рекламе
+ * с кнопкой «Написать в WhatsApp». Там лежит `source_id` — это ID объявления,
+ * тот же, что в рекламном кабинете. Никаких UTM-меток для этого не нужно.
+ */
+export type ChatReferral = {
+  adExternalId: string;
+  headline: string | null;
+};
+
 export type ChatEvent = {
   externalId: string;
   channel: ChatChannel;
@@ -127,6 +139,8 @@ export type ChatEvent = {
   contactPhone: string | null;
   body: string | null;
   direction: "in" | "out";
+  /** Откуда пришёл человек; null — если писал не из рекламы. */
+  referral: ChatReferral | null;
 };
 
 export type ChatParseResult =
@@ -152,6 +166,58 @@ function readBody(source: Record<string, unknown>): string | null {
   if (message && typeof message === "object" && !Array.isArray(message)) {
     return readString(message as Record<string, unknown>, ["text", "body", "content"]);
   }
+  return null;
+}
+
+/**
+ * Где может лежать блок про рекламу.
+ * У WhatsApp Cloud API это `referral` внутри сообщения, но посредники вроде
+ * ChatPlace часто разворачивают вложенность или переименовывают поле, поэтому
+ * ищем в нескольких местах и на верхнем уровне тоже.
+ */
+const REFERRAL_CONTAINERS = ["referral", "ad_referral", "referral_data", "ctwa", "context"];
+const AD_ID_KEYS = ["source_id", "ad_id", "adId", "ad_external_id", "source_ad_id"];
+const HEADLINE_KEYS = ["headline", "ad_headline", "title"];
+
+function pickObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Достаёт объявление из события.
+ *
+ * `source_type` важен: по клику из обычного поста Meta тоже присылает referral,
+ * но `source_id` там — идентификатор поста, а не объявления. Такое к рекламе
+ * не привязываем, иначе в аналитике креативов появятся выдуманные строки.
+ */
+function readReferral(source: Record<string, unknown>): ChatReferral | null {
+  const candidates: Record<string, unknown>[] = [];
+  for (const key of REFERRAL_CONTAINERS) {
+    const nested = pickObject(source[key]);
+    if (nested) {
+      candidates.push(nested);
+      const deeper = pickObject(nested.referral);
+      if (deeper) candidates.push(deeper);
+    }
+  }
+  // Верхний уровень пробуем последним: там поля могли просто разложить плоско.
+  candidates.push(source);
+
+  for (const candidate of candidates) {
+    const adExternalId = readString(candidate, AD_ID_KEYS);
+    if (!adExternalId) continue;
+
+    const sourceType = readString(candidate, ["source_type", "referral_type"])?.toLowerCase();
+    if (sourceType && sourceType !== "ad") continue;
+
+    return {
+      adExternalId: adExternalId.slice(0, MAX_ID),
+      headline: readString(candidate, HEADLINE_KEYS)?.slice(0, MAX_NAME) ?? null,
+    };
+  }
+
   return null;
 }
 
@@ -202,6 +268,7 @@ export function parseChatEvent(body: unknown): ChatParseResult {
       contactPhone: rawPhone ? normalizePhone(rawPhone) : null,
       body: readBody(source)?.slice(0, MAX_BODY) ?? null,
       direction: readDirection(source),
+      referral: readReferral(source),
     },
   };
 }
