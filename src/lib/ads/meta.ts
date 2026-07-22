@@ -178,9 +178,17 @@ export async function fetchCampaigns(
     `?fields=id,name,status,effective_status,objective,daily_budget,lifetime_budget` +
     `&limit=${PAGE_LIMIT}`;
 
-  const payload = await graphGet<RawCampaign>(url, token);
+  // Страницы обязательны: у активного кабинета кампаний больше двухсот,
+  // и без обхода итог по кампаниям выходил ниже, чем по их же группам.
+  const rows: RawCampaign[] = [];
+  let next: string | undefined = url;
+  while (next) {
+    const payload: GraphResponse<RawCampaign> = await graphGet<RawCampaign>(next, token);
+    rows.push(...(payload.data ?? []));
+    next = payload.paging?.next;
+  }
 
-  return (payload.data ?? []).map((campaign) => ({
+  return rows.map((campaign) => ({
     externalId: campaign.id,
     name: campaign.name ?? "Без названия",
     status: campaign.effective_status ?? campaign.status ?? null,
@@ -246,6 +254,7 @@ export type MetaAd = {
   name: string;
   status: string | null;
   campaignExternalId: string | null;
+  adSetExternalId: string | null;
   previewUrl: string | null;
 };
 
@@ -256,6 +265,7 @@ type RawAd = {
   effective_status?: string;
   campaign_id?: string;
   preview_shareable_link?: string;
+  adset_id?: string;
 };
 
 /** Объявления кабинета — это и есть креативы для сквозной аналитики (ТЗ, Блок 3). */
@@ -263,7 +273,7 @@ export async function fetchAds(token: string, accountId: string): Promise<MetaAd
   const account = normalizeAccountId(accountId);
   const url =
     `${GRAPH_URL}/${account}/ads` +
-    `?fields=id,name,status,effective_status,campaign_id,preview_shareable_link` +
+    `?fields=id,name,status,effective_status,campaign_id,adset_id,preview_shareable_link` +
     `&limit=${PAGE_LIMIT}`;
 
   const rows: RawAd[] = [];
@@ -279,6 +289,7 @@ export async function fetchAds(token: string, accountId: string): Promise<MetaAd
     name: ad.name ?? "Без названия",
     status: ad.effective_status ?? ad.status ?? null,
     campaignExternalId: ad.campaign_id ?? null,
+    adSetExternalId: ad.adset_id ?? null,
     previewUrl: ad.preview_shareable_link ?? null,
   }));
 }
@@ -315,6 +326,101 @@ export async function fetchAdDailyInsights(
     )
     .map((row) => ({
       adId: row.ad_id,
+      campaignId: row.campaign_id ?? "",
+      date: row.date_start,
+      spend: toNumber(row.spend),
+      impressions: Math.round(toNumber(row.impressions)),
+      reach: Math.round(toNumber(row.reach)),
+      clicks: Math.round(toNumber(row.clicks)),
+      leads: countLeads(row.actions),
+    }));
+}
+
+/* --------------------------- группы объявлений --------------------------- */
+
+export type MetaAdSet = {
+  externalId: string;
+  name: string;
+  status: string | null;
+  campaignExternalId: string | null;
+  /** Куда ведёт группа: WHATSAPP, INSTAGRAM_PROFILE, WEBSITE… */
+  destination: string | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+};
+
+type RawAdSet = {
+  id: string;
+  name?: string;
+  status?: string;
+  effective_status?: string;
+  campaign_id?: string;
+  destination_type?: string;
+  daily_budget?: string;
+  lifetime_budget?: string;
+};
+
+export async function fetchAdSets(token: string, accountId: string): Promise<MetaAdSet[]> {
+  const account = normalizeAccountId(accountId);
+  const url =
+    `${GRAPH_URL}/${account}/adsets` +
+    `?fields=id,name,status,effective_status,campaign_id,destination_type,daily_budget,lifetime_budget` +
+    `&limit=${PAGE_LIMIT}`;
+
+  const rows: RawAdSet[] = [];
+  let next: string | undefined = url;
+  while (next) {
+    const payload: GraphResponse<RawAdSet> = await graphGet<RawAdSet>(next, token);
+    rows.push(...(payload.data ?? []));
+    next = payload.paging?.next;
+  }
+
+  return rows.map((set) => ({
+    externalId: set.id,
+    name: set.name ?? "Без названия",
+    status: set.effective_status ?? set.status ?? null,
+    campaignExternalId: set.campaign_id ?? null,
+    // UNDEFINED означает «Meta не сказала» — это не назначение, и хранить его незачем.
+    destination:
+      set.destination_type && set.destination_type !== "UNDEFINED"
+        ? set.destination_type
+        : null,
+    dailyBudget: fromMinorUnits(set.daily_budget),
+    lifetimeBudget: fromMinorUnits(set.lifetime_budget),
+  }));
+}
+
+export type MetaAdSetDailyInsight = MetaDailyInsight & { adSetId: string };
+
+type RawAdSetInsight = RawInsight & { adset_id?: string };
+
+export async function fetchAdSetDailyInsights(
+  token: string,
+  accountId: string,
+  since: string,
+  until: string,
+): Promise<MetaAdSetDailyInsight[]> {
+  const account = normalizeAccountId(accountId);
+  const timeRange = encodeURIComponent(JSON.stringify({ since, until }));
+  const url =
+    `${GRAPH_URL}/${account}/insights` +
+    `?level=adset&time_increment=1&time_range=${timeRange}` +
+    `&fields=adset_id,campaign_id,spend,impressions,reach,clicks,actions&limit=${PAGE_LIMIT}`;
+
+  const rows: RawAdSetInsight[] = [];
+  let next: string | undefined = url;
+  while (next) {
+    const payload: GraphResponse<RawAdSetInsight> = await graphGet<RawAdSetInsight>(next, token);
+    rows.push(...(payload.data ?? []));
+    next = payload.paging?.next;
+  }
+
+  return rows
+    .filter((row): row is RawAdSetInsight & { adset_id: string; date_start: string } =>
+      Boolean(row.adset_id && row.date_start),
+    )
+    .map((row) => ({
+      adSetId: row.adset_id,
       campaignId: row.campaign_id ?? "",
       date: row.date_start,
       spend: toNumber(row.spend),

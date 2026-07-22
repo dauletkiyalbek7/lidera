@@ -220,6 +220,93 @@ export type Database = {
         };
         Relationships: [];
       };
+      ad_sets: {
+        Row: {
+          campaign_id: string | null;
+          currency: string | null;
+          daily_budget: number | null;
+          destination: string | null;
+          external_id: string;
+          id: string;
+          lifetime_budget: number | null;
+          name: string;
+          platform: string;
+          project_id: string;
+          status: string | null;
+          synced_at: string;
+        };
+        Insert: {
+          campaign_id?: string | null;
+          currency?: string | null;
+          daily_budget?: number | null;
+          destination?: string | null;
+          external_id: string;
+          id?: string;
+          lifetime_budget?: number | null;
+          name: string;
+          platform?: string;
+          project_id: string;
+          status?: string | null;
+          synced_at?: string;
+        };
+        Update: {
+          campaign_id?: string | null;
+          currency?: string | null;
+          daily_budget?: number | null;
+          destination?: string | null;
+          external_id?: string;
+          id?: string;
+          lifetime_budget?: number | null;
+          name?: string;
+          platform?: string;
+          project_id?: string;
+          status?: string | null;
+          synced_at?: string;
+        };
+        Relationships: [];
+      };
+      ad_set_insights_daily: {
+        Row: {
+          ad_set_id: string;
+          clicks: number;
+          currency: string | null;
+          date: string;
+          id: string;
+          impressions: number;
+          leads: number;
+          project_id: string;
+          reach: number;
+          spend: number;
+          spend_source: number;
+        };
+        Insert: {
+          ad_set_id: string;
+          clicks?: number;
+          currency?: string | null;
+          date: string;
+          id?: string;
+          impressions?: number;
+          leads?: number;
+          project_id: string;
+          reach?: number;
+          spend?: number;
+          spend_source?: number;
+        };
+        Update: {
+          ad_set_id?: string;
+          clicks?: number;
+          currency?: string | null;
+          date?: string;
+          id?: string;
+          impressions?: number;
+          leads?: number;
+          project_id?: string;
+          reach?: number;
+          spend?: number;
+          spend_source?: number;
+        };
+        Relationships: [];
+      };
       ad_campaigns: {
         Row: {
           currency: string | null;
@@ -544,6 +631,7 @@ export type Database = {
       creatives: {
         Row: {
           campaign_id: string | null;
+          ad_set_id: string | null;
           created_at: string;
           preview_url: string | null;
           status: string | null;
@@ -556,6 +644,7 @@ export type Database = {
         };
         Insert: {
           campaign_id?: string | null;
+          ad_set_id?: string | null;
           created_at?: string;
           preview_url?: string | null;
           status?: string | null;
@@ -568,6 +657,7 @@ export type Database = {
         };
         Update: {
           campaign_id?: string | null;
+          ad_set_id?: string | null;
           created_at?: string;
           preview_url?: string | null;
           status?: string | null;

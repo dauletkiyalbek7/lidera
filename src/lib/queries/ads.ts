@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { DateRange } from "@/lib/date-range";
 import { campaignPurpose, type CampaignPurpose } from "@/lib/ads/purpose";
 
-/** Данные раздела «Реклама» (ТЗ, Блок 3). */
+/** Данные раздела «Реклама» (ТЗ, Блок 3): кампании, группы и объявления. */
 
 /** Сырые счётчики из кабинета — всё остальное считается из них. */
 export type AdCounters = {
@@ -18,52 +18,51 @@ export type AdCounters = {
 
 /**
  * Показатели, которые в Ads Manager отдельными колонками.
- * Meta их тоже считает, но мы выводим сами: так они не разъедутся с расходом,
- * который мы пересчитываем в валюту проекта.
+ * Считаем сами: у Meta они в валюте кабинета, а расход мы ещё и переводим
+ * в валюту проекта — готовые значения разъехались бы с нашими.
  */
 export type AdDerived = {
-  /** Клики ÷ показы. */
   ctr: number | null;
-  /** Цена клика. */
   cpc: number | null;
-  /** Цена тысячи показов. */
   cpm: number | null;
-  /** Цена лида. */
   cpl: number | null;
   /** Показы ÷ охват: сколько раз в среднем человек увидел объявление. */
   frequency: number | null;
 };
 
-export type CampaignRow = AdCounters &
+export type AdsTotals = AdCounters & AdDerived & { sourceCurrency: string | null };
+
+/** Строка любого уровня: кампания, группа или объявление. */
+export type AdRow = AdCounters &
   AdDerived & {
     id: string;
-    externalId: string;
     name: string;
     status: string | null;
-    objective: string | null;
     purpose: CampaignPurpose;
+    /** Чей это ребёнок — показываем родителя строкой ниже названия. */
+    parentName: string | null;
+    /** Куда ведёт трафик: WhatsApp, профиль Instagram, сайт. Только у групп. */
+    destination: string | null;
+    objective: string | null;
     dailyBudget: number | null;
     lifetimeBudget: number | null;
-    currency: string | null;
-    syncedAt: string;
+    previewUrl: string | null;
   };
 
-export type AdsTotals = AdCounters &
-  AdDerived & {
-    /** Валюта кабинета, если она у всех кампаний одна. */
-    sourceCurrency: string | null;
-  };
+export type AdsLevel = "campaigns" | "adsets" | "ads";
 
 export type AdsData = {
-  campaigns: CampaignRow[];
-  /** Итог по всем кампаниям — он же уходит в деньги проекта. */
+  rows: AdRow[];
+  /** Итог по всему кабинету за период. */
   totals: AdsTotals;
   /** Отдельно курсы и отдельно наём: смешивать их цену лида нельзя. */
   byPurpose: Record<CampaignPurpose, AdsTotals>;
   lastSyncedAt: string | null;
+  /** Сколько строк спрятано фильтром «только с расходом». */
+  hidden: number;
 };
 
-const EMPTY_COUNTERS: AdCounters = {
+const EMPTY: AdCounters = {
   spend: 0,
   spendSource: 0,
   impressions: 0,
@@ -72,16 +71,12 @@ const EMPTY_COUNTERS: AdCounters = {
   leads: 0,
 };
 
-function divide(numerator: number, denominator: number): number | null {
-  if (!denominator) return null;
-  const value = numerator / denominator;
+function divide(a: number, b: number): number | null {
+  if (!b) return null;
+  const value = a / b;
   return Number.isFinite(value) ? value : null;
 }
 
-/**
- * Производные считаем на той сумме, в которой показываем: если кабинет
- * в долларах, цена клика тоже в долларах.
- */
 function derive(counters: AdCounters, sourceCurrency: string | null): AdDerived {
   const money = sourceCurrency ? counters.spendSource : counters.spend;
   return {
@@ -93,7 +88,7 @@ function derive(counters: AdCounters, sourceCurrency: string | null): AdDerived 
   };
 }
 
-function addCounters(a: AdCounters, b: AdCounters): AdCounters {
+function add(a: AdCounters, b: AdCounters): AdCounters {
   return {
     spend: a.spend + b.spend,
     spendSource: a.spendSource + b.spendSource,
@@ -108,51 +103,22 @@ function totalsFrom(counters: AdCounters, sourceCurrency: string | null): AdsTot
   return { ...counters, ...derive(counters, sourceCurrency), sourceCurrency };
 }
 
-export async function loadAdsData(
-  projectId: string,
-  range: DateRange,
-  platform: string,
-): Promise<AdsData> {
-  const supabase = await createSupabaseServerClient();
+type InsightRow = {
+  key: string;
+  spend: number;
+  spend_source: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  leads: number;
+};
 
-  const { data: campaigns } = await supabase
-    .from("ad_campaigns")
-    .select("*")
-    .eq("project_id", projectId)
-    .eq("platform", platform)
-    .order("name", { ascending: true });
-
-  const list = campaigns ?? [];
-  if (list.length === 0) {
-    const empty = totalsFrom(EMPTY_COUNTERS, null);
-    return {
-      campaigns: [],
-      totals: empty,
-      byPurpose: { courses: empty, vacancy: empty },
-      lastSyncedAt: null,
-    };
-  }
-
-  let insightsQuery = supabase
-    .from("ad_insights_daily")
-    .select("campaign_id, spend, spend_source, impressions, reach, clicks, leads, currency")
-    .eq("project_id", projectId)
-    .in(
-      "campaign_id",
-      list.map((campaign) => campaign.id),
-    );
-
-  if (range.from) insightsQuery = insightsQuery.gte("date", range.from);
-  if (range.to) insightsQuery = insightsQuery.lte("date", range.to);
-
-  const { data: insights } = await insightsQuery;
-
-  const byCampaign = new Map<string, AdCounters>();
-  for (const row of insights ?? []) {
-    const current = byCampaign.get(row.campaign_id) ?? { ...EMPTY_COUNTERS };
-    byCampaign.set(
-      row.campaign_id,
-      addCounters(current, {
+function foldInsights(rows: InsightRow[]): Map<string, AdCounters> {
+  const byKey = new Map<string, AdCounters>();
+  for (const row of rows) {
+    byKey.set(
+      row.key,
+      add(byKey.get(row.key) ?? { ...EMPTY }, {
         spend: Number(row.spend),
         spendSource: Number(row.spend_source),
         impressions: row.impressions,
@@ -162,51 +128,210 @@ export async function loadAdsData(
       }),
     );
   }
+  return byKey;
+}
 
-  const currencies = new Set(list.map((campaign) => campaign.currency).filter(Boolean));
+export async function loadAdsData(
+  projectId: string,
+  range: DateRange,
+  level: AdsLevel,
+  options: { onlySpending?: boolean } = {},
+): Promise<AdsData> {
+  const supabase = await createSupabaseServerClient();
+  const onlySpending = options.onlySpending ?? true;
+
+  const [campaignsResult, setsResult, creativesResult] = await Promise.all([
+    supabase
+      .from("ad_campaigns")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("platform", "meta"),
+    supabase.from("ad_sets").select("*").eq("project_id", projectId).eq("platform", "meta"),
+    level === "ads"
+      ? supabase
+          .from("creatives")
+          .select("id, name, status, preview_url, campaign_id, ad_set_id")
+          .eq("project_id", projectId)
+          .eq("platform", "meta")
+          .not("external_id", "is", null)
+      : Promise.resolve({ data: [] as never[] }),
+  ]);
+
+  const campaigns = campaignsResult.data ?? [];
+  const sets = setsResult.data ?? [];
+  const creatives = (creativesResult.data ?? []) as {
+    id: string;
+    name: string;
+    status: string | null;
+    preview_url: string | null;
+    campaign_id: string | null;
+    ad_set_id: string | null;
+  }[];
+
+  const currencies = new Set(campaigns.map((row) => row.currency).filter(Boolean));
   const sourceCurrency = currencies.size === 1 ? ([...currencies][0] as string) : null;
 
-  const rows: CampaignRow[] = list.map((campaign) => {
-    const counters = byCampaign.get(campaign.id) ?? { ...EMPTY_COUNTERS };
-    return {
-      ...counters,
-      ...derive(counters, sourceCurrency),
-      id: campaign.id,
-      externalId: campaign.external_id,
-      name: campaign.name,
-      status: campaign.status,
-      objective: campaign.objective,
-      purpose: campaignPurpose(campaign.name),
-      dailyBudget: campaign.daily_budget === null ? null : Number(campaign.daily_budget),
-      lifetimeBudget:
-        campaign.lifetime_budget === null ? null : Number(campaign.lifetime_budget),
-      currency: campaign.currency,
-      syncedAt: campaign.synced_at,
-    };
-  });
+  const purposeByCampaign = new Map(
+    campaigns.map((row) => [row.id, campaignPurpose(row.name)] as const),
+  );
+  const nameByCampaign = new Map(campaigns.map((row) => [row.id, row.name] as const));
+  const nameBySet = new Map(sets.map((row) => [row.id, row.name] as const));
+
+  /**
+   * Группа наследует назначение кампании, но собственное название сильнее:
+   * бывает, что кампания названа нейтрально, а «вакансия» стоит уже в группе.
+   */
+  const purposeBySet = new Map(
+    sets.map((row) => {
+      const own = campaignPurpose(row.name);
+      const inherited = row.campaign_id
+        ? (purposeByCampaign.get(row.campaign_id) ?? "courses")
+        : "courses";
+      return [row.id, own === "vacancy" || inherited === "vacancy" ? "vacancy" : "courses"] as const;
+    }),
+  );
+
+  const dateFilter = <T extends { gte: (c: string, v: string) => T; lte: (c: string, v: string) => T }>(
+    query: T,
+  ) => {
+    let next = query;
+    if (range.from) next = next.gte("date", range.from);
+    if (range.to) next = next.lte("date", range.to);
+    return next;
+  };
+
+  // Итог по проекту всегда считаем по кампаниям: складывать уровни нельзя,
+  // расход удвоится.
+  const campaignInsights = await dateFilter(
+    supabase
+      .from("ad_insights_daily")
+      .select("campaign_id, spend, spend_source, impressions, reach, clicks, leads")
+      .eq("project_id", projectId),
+  );
+
+  const byCampaign = foldInsights(
+    (campaignInsights.data ?? []).map((row) => ({ ...row, key: row.campaign_id })),
+  );
+
+  let byRow = byCampaign;
+  if (level === "adsets") {
+    const setInsights = await dateFilter(
+      supabase
+        .from("ad_set_insights_daily")
+        .select("ad_set_id, spend, spend_source, impressions, reach, clicks, leads")
+        .eq("project_id", projectId),
+    );
+    byRow = foldInsights((setInsights.data ?? []).map((row) => ({ ...row, key: row.ad_set_id })));
+  } else if (level === "ads") {
+    const adInsights = await dateFilter(
+      supabase
+        .from("ad_creative_insights_daily")
+        .select("creative_id, spend, spend_source, impressions, reach, clicks, leads")
+        .eq("project_id", projectId),
+    );
+    byRow = foldInsights((adInsights.data ?? []).map((row) => ({ ...row, key: row.creative_id })));
+  }
+
+  const build = (): AdRow[] => {
+    if (level === "campaigns") {
+      return campaigns.map((row) => {
+        const counters = byCampaign.get(row.id) ?? { ...EMPTY };
+        return {
+          ...counters,
+          ...derive(counters, sourceCurrency),
+          id: row.id,
+          name: row.name,
+          status: row.status,
+          purpose: purposeByCampaign.get(row.id) ?? "courses",
+          parentName: null,
+          destination: null,
+          objective: row.objective,
+          dailyBudget: row.daily_budget === null ? null : Number(row.daily_budget),
+          lifetimeBudget: row.lifetime_budget === null ? null : Number(row.lifetime_budget),
+          previewUrl: null,
+        };
+      });
+    }
+
+    if (level === "adsets") {
+      return sets.map((row) => {
+        const counters = byRow.get(row.id) ?? { ...EMPTY };
+        return {
+          ...counters,
+          ...derive(counters, sourceCurrency),
+          id: row.id,
+          name: row.name,
+          status: row.status,
+          purpose: purposeBySet.get(row.id) ?? "courses",
+          parentName: row.campaign_id ? (nameByCampaign.get(row.campaign_id) ?? null) : null,
+          destination: row.destination,
+          objective: null,
+          dailyBudget: row.daily_budget === null ? null : Number(row.daily_budget),
+          lifetimeBudget: row.lifetime_budget === null ? null : Number(row.lifetime_budget),
+          previewUrl: null,
+        };
+      });
+    }
+
+    return creatives.map((row) => {
+      const counters = byRow.get(row.id) ?? { ...EMPTY };
+      const purpose = row.ad_set_id
+        ? (purposeBySet.get(row.ad_set_id) ?? "courses")
+        : row.campaign_id
+          ? (purposeByCampaign.get(row.campaign_id) ?? "courses")
+          : "courses";
+      return {
+        ...counters,
+        ...derive(counters, sourceCurrency),
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        purpose,
+        parentName: row.ad_set_id
+          ? (nameBySet.get(row.ad_set_id) ?? null)
+          : row.campaign_id
+            ? (nameByCampaign.get(row.campaign_id) ?? null)
+            : null,
+        destination: null,
+        objective: null,
+        dailyBudget: null,
+        lifetimeBudget: null,
+        previewUrl: row.preview_url,
+      };
+    });
+  };
+
+  const all = build();
+  // Кабинет копит сотни давно остановленных кампаний. Показываем те, что
+  // тратили деньги в выбранном периоде, — остальные только шумят.
+  const visible = onlySpending ? all.filter((row) => row.spendSource > 0 || row.spend > 0) : all;
+  visible.sort((a, b) => b.spendSource - a.spendSource || b.spend - a.spend);
 
   const sums: Record<CampaignPurpose, AdCounters> = {
-    courses: { ...EMPTY_COUNTERS },
-    vacancy: { ...EMPTY_COUNTERS },
+    courses: { ...EMPTY },
+    vacancy: { ...EMPTY },
   };
-  let all: AdCounters = { ...EMPTY_COUNTERS };
+  let overall: AdCounters = { ...EMPTY };
 
-  for (const row of rows) {
-    sums[row.purpose] = addCounters(sums[row.purpose], row);
-    all = addCounters(all, row);
+  for (const row of campaigns) {
+    const counters = byCampaign.get(row.id);
+    if (!counters) continue;
+    const purpose = purposeByCampaign.get(row.id) ?? "courses";
+    sums[purpose] = add(sums[purpose], counters);
+    overall = add(overall, counters);
   }
 
   return {
-    campaigns: rows,
-    totals: totalsFrom(all, sourceCurrency),
+    rows: visible,
+    totals: totalsFrom(overall, sourceCurrency),
     byPurpose: {
       courses: totalsFrom(sums.courses, sourceCurrency),
       vacancy: totalsFrom(sums.vacancy, sourceCurrency),
     },
-    lastSyncedAt: list.reduce<string | null>(
-      (latest, campaign) =>
-        !latest || campaign.synced_at > latest ? campaign.synced_at : latest,
+    lastSyncedAt: campaigns.reduce<string | null>(
+      (latest, row) => (!latest || row.synced_at > latest ? row.synced_at : latest),
       null,
     ),
+    hidden: all.length - visible.length,
   };
 }

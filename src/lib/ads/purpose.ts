@@ -23,6 +23,7 @@ export const PURPOSE_LABELS: Record<CampaignPurpose, string> = {
  * Кириллица и латиница вперемешку: в кабинете названия пишут и так, и так.
  */
 const VACANCY_WORDS = [
+  "vac",
   "вакансия",
   "вакансии",
   "вакансий",

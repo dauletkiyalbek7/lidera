@@ -9,6 +9,8 @@ import {
   fetchAccount,
   fetchAdDailyInsights,
   fetchAds,
+  fetchAdSetDailyInsights,
+  fetchAdSets,
   fetchCampaigns,
   fetchDailyInsights,
   MetaApiError,
@@ -59,13 +61,17 @@ export async function runMetaSync({
   let account;
   let campaigns;
   let insights;
+  let adSets;
+  let adSetInsights;
   let ads;
   let adInsights;
   try {
     account = await fetchAccount(credentials.token, credentials.account);
-    [campaigns, insights, ads, adInsights] = await Promise.all([
+    [campaigns, insights, adSets, adSetInsights, ads, adInsights] = await Promise.all([
       fetchCampaigns(credentials.token, credentials.account),
       fetchDailyInsights(credentials.token, credentials.account, since, until),
+      fetchAdSets(credentials.token, credentials.account),
+      fetchAdSetDailyInsights(credentials.token, credentials.account, since, until),
       fetchAds(credentials.token, credentials.account),
       fetchAdDailyInsights(credentials.token, credentials.account, since, until),
     ]);
@@ -135,6 +141,71 @@ export async function runMetaSync({
     }
   }
 
+  // Группы объявлений: средний уровень, на нём же назначение трафика.
+  const setIdByExternal = new Map<string, string>();
+  if (adSets.length > 0) {
+    const { error } = await supabase.from("ad_sets").upsert(
+      adSets.map((set) => ({
+        project_id: projectId,
+        platform: "meta",
+        external_id: set.externalId,
+        campaign_id: set.campaignExternalId
+          ? (idByExternal.get(set.campaignExternalId) ?? null)
+          : null,
+        name: set.name,
+        status: set.status,
+        destination: set.destination,
+        daily_budget: set.dailyBudget,
+        lifetime_budget: set.lifetimeBudget,
+        currency: account.currency,
+        synced_at: new Date().toISOString(),
+      })),
+      { onConflict: "project_id,platform,external_id" },
+    );
+
+    if (error) {
+      return { error: `Не удалось сохранить группы объявлений: ${error.message}`, message: null };
+    }
+
+    const { data: storedSets } = await supabase
+      .from("ad_sets")
+      .select("id, external_id")
+      .eq("project_id", projectId)
+      .eq("platform", "meta");
+
+    for (const row of storedSets ?? []) setIdByExternal.set(row.external_id, row.id);
+  }
+
+  if (setIdByExternal.size > 0 && adSetInsights.length > 0) {
+    const setRows = adSetInsights
+      .filter((row) => setIdByExternal.has(row.adSetId))
+      .map((row) => ({
+        project_id: projectId,
+        ad_set_id: setIdByExternal.get(row.adSetId) as string,
+        date: row.date,
+        spend: row.spend * rate,
+        spend_source: row.spend,
+        currency: account.currency,
+        impressions: row.impressions,
+        reach: row.reach,
+        clicks: row.clicks,
+        leads: row.leads,
+      }));
+
+    if (setRows.length > 0) {
+      const { error } = await supabase
+        .from("ad_set_insights_daily")
+        .upsert(setRows, { onConflict: "project_id,ad_set_id,date" });
+
+      if (error) {
+        return {
+          error: `Не удалось сохранить статистику групп: ${error.message}`,
+          message: null,
+        };
+      }
+    }
+  }
+
   // Креативы: объявления кабинета и их дневная статистика — основа сквозной аналитики.
   let creativesSaved = 0;
   if (ads.length > 0) {
@@ -148,6 +219,9 @@ export async function runMetaSync({
         preview_url: ad.previewUrl,
         campaign_id: ad.campaignExternalId
           ? (idByExternal.get(ad.campaignExternalId) ?? null)
+          : null,
+        ad_set_id: ad.adSetExternalId
+          ? (setIdByExternal.get(ad.adSetExternalId) ?? null)
           : null,
         synced_at: new Date().toISOString(),
       })),
@@ -254,6 +328,7 @@ export async function runMetaSync({
     error: null,
     message:
       `Кабинет «${account.name}»: кампаний ${campaigns.length}, ` +
-      `креативов ${creativesSaved}, дней статистики ${daysUpdated}.${rateNote}`,
+      `групп ${adSets.length}, объявлений ${creativesSaved}, ` +
+      `дней статистики ${daysUpdated}.${rateNote}`,
   };
 }
