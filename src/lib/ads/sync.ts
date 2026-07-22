@@ -217,6 +217,8 @@ export async function runMetaSync({
         name: ad.name,
         status: ad.status,
         preview_url: ad.previewUrl,
+        thumbnail_url: ad.thumbnailUrl,
+        media_type: ad.mediaType,
         campaign_id: ad.campaignExternalId
           ? (idByExternal.get(ad.campaignExternalId) ?? null)
           : null,

@@ -249,6 +249,9 @@ export async function fetchDailyInsights(
     }));
 }
 
+/** Что за материал в объявлении — от этого зависит значок на карточке. */
+export type MetaMediaType = "video" | "image" | null;
+
 export type MetaAd = {
   externalId: string;
   name: string;
@@ -256,6 +259,17 @@ export type MetaAd = {
   campaignExternalId: string | null;
   adSetExternalId: string | null;
   previewUrl: string | null;
+  /** Картинка объявления; у видео — кадр из него. */
+  thumbnailUrl: string | null;
+  mediaType: MetaMediaType;
+};
+
+type RawAdCreative = {
+  id?: string;
+  thumbnail_url?: string;
+  image_url?: string;
+  video_id?: string;
+  object_type?: string;
 };
 
 type RawAd = {
@@ -266,14 +280,30 @@ type RawAd = {
   campaign_id?: string;
   preview_shareable_link?: string;
   adset_id?: string;
+  creative?: RawAdCreative;
 };
+
+/**
+ * Тип материала.
+ * `object_type` у Meta зависит от того, как объявление собрали, поэтому
+ * опираемся сначала на наличие video_id — он есть только у видео.
+ */
+function readMediaType(creative: RawAdCreative | undefined): MetaMediaType {
+  if (!creative) return null;
+  if (creative.video_id) return "video";
+  const objectType = creative.object_type?.toUpperCase();
+  if (objectType === "VIDEO") return "video";
+  if (creative.image_url || creative.thumbnail_url) return "image";
+  return null;
+}
 
 /** Объявления кабинета — это и есть креативы для сквозной аналитики (ТЗ, Блок 3). */
 export async function fetchAds(token: string, accountId: string): Promise<MetaAd[]> {
   const account = normalizeAccountId(accountId);
   const url =
     `${GRAPH_URL}/${account}/ads` +
-    `?fields=id,name,status,effective_status,campaign_id,adset_id,preview_shareable_link` +
+    `?fields=id,name,status,effective_status,campaign_id,adset_id,preview_shareable_link,` +
+    `creative{id,thumbnail_url,image_url,video_id,object_type}` +
     `&limit=${PAGE_LIMIT}`;
 
   const rows: RawAd[] = [];
@@ -291,6 +321,10 @@ export async function fetchAds(token: string, accountId: string): Promise<MetaAd
     campaignExternalId: ad.campaign_id ?? null,
     adSetExternalId: ad.adset_id ?? null,
     previewUrl: ad.preview_shareable_link ?? null,
+    // thumbnail_url есть и у видео — это кадр из ролика, ровно то, что нужно
+    // показать в таблице. image_url крупнее, берём его как запасной.
+    thumbnailUrl: ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null,
+    mediaType: readMediaType(ad.creative),
   }));
 }
 

@@ -664,12 +664,14 @@ export type Database = {
           created_at: string
           external_id: string | null
           id: string
+          media_type: string | null
           name: string
           platform: string | null
           preview_url: string | null
           project_id: string
           status: string | null
           synced_at: string
+          thumbnail_url: string | null
         }
         Insert: {
           ad_set_id?: string | null
@@ -677,12 +679,14 @@ export type Database = {
           created_at?: string
           external_id?: string | null
           id?: string
+          media_type?: string | null
           name: string
           platform?: string | null
           preview_url?: string | null
           project_id: string
           status?: string | null
           synced_at?: string
+          thumbnail_url?: string | null
         }
         Update: {
           ad_set_id?: string | null
@@ -690,12 +694,14 @@ export type Database = {
           created_at?: string
           external_id?: string | null
           id?: string
+          media_type?: string | null
           name?: string
           platform?: string | null
           preview_url?: string | null
           project_id?: string
           status?: string | null
           synced_at?: string
+          thumbnail_url?: string | null
         }
         Relationships: [
           {
