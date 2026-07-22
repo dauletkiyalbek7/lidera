@@ -9,16 +9,24 @@ const LOCALE = "ru-RU";
 export function formatMoney(
   amount: number,
   currency: string = DEFAULT_CURRENCY,
-  options: { compact?: boolean } = {},
+  options: { compact?: boolean; fractionDigits?: number } = {},
 ): string {
   return new Intl.NumberFormat(LOCALE, {
     style: "currency",
     currency,
     // Без narrowSymbol тенге печатается как «KZT», а не «₸».
     currencyDisplay: "narrowSymbol",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: options.fractionDigits ?? 0,
     notation: options.compact ? "compact" : "standard",
   }).format(amount);
+}
+
+/**
+ * Деньги рекламного кабинета: доллары показываем с центами, тенге — целыми.
+ * В долларах суммы мелкие, и «$29» вместо «$28,96» съедает разницу между кампаниями.
+ */
+export function formatAdMoney(amount: number, currency: string): string {
+  return formatMoney(amount, currency, { fractionDigits: currency === "USD" ? 2 : 0 });
 }
 
 /** Символ валюты проекта — для подписей полей ввода: «Сумма, ₸». */

@@ -14,8 +14,8 @@ import {
   currencySymbol,
   formatDate,
   formatDateRange,
+  formatAdMoney,
   formatMoney,
-  formatMoneyOrDash,
   formatNumber,
   formatPercent,
 } from "@/lib/format";
@@ -72,17 +72,27 @@ export default async function AdsPage({
   const rate = Number(project.ad_spend_rate);
   const needsRate = Boolean(totals.sourceCurrency && totals.sourceCurrency !== currency);
 
-  const costPerLead = totals.leads > 0 ? totals.spend / totals.leads : null;
+  /**
+   * Раздел «Реклама» говорит на языке рекламного кабинета: если он в долларах,
+   * суммы показываем в долларах, а тенге подписываем снизу мелким.
+   * В денежных разделах наоборот — там всё сводится к валюте проекта.
+   */
+  const adCurrency = totals.sourceCurrency ?? currency;
+  const adSpend = needsRate ? totals.spendSource : totals.spend;
+  const asProjectMoney = (source: number) =>
+    `≈ ${formatMoney(needsRate ? source * rate : source, currency)}`;
+
+  const costPerLead = totals.leads > 0 ? adSpend / totals.leads : null;
   const ctr = totals.impressions > 0 ? totals.clicks / totals.impressions : null;
 
   const stats = [
     {
       key: "spend",
       label: "Расход за период",
-      value: formatMoney(totals.spend, currency),
+      value: formatAdMoney(adSpend, adCurrency),
       accent: true,
       hint: needsRate
-        ? `${formatNumber(totals.spendSource, 2)} ${totals.sourceCurrency} по курсу ${formatNumber(rate, 2)}`
+        ? `${asProjectMoney(totals.spendSource)} по курсу ${formatNumber(rate, 2)}`
         : formatDateRange(range.from, range.to),
     },
     {
@@ -94,7 +104,8 @@ export default async function AdsPage({
     {
       key: "cpl",
       label: "Цена лида",
-      value: formatMoneyOrDash(costPerLead, currency),
+      value: costPerLead === null ? "—" : formatAdMoney(costPerLead, adCurrency),
+      hint: costPerLead === null || !needsRate ? undefined : asProjectMoney(costPerLead),
     },
     {
       key: "ctr",
@@ -145,21 +156,32 @@ export default async function AdsPage({
       header: "Цена лида",
       align: "right",
       hideOnMobile: true,
-      render: (row) => (
-        <span className="tabular text-muted">
-          {formatMoneyOrDash(row.leads > 0 ? row.spend / row.leads : null, currency)}
-        </span>
-      ),
+      render: (row) => {
+        const source = needsRate ? row.spendSource : row.spend;
+        return (
+          <span className="tabular text-muted">
+            {row.leads > 0 ? formatAdMoney(source / row.leads, adCurrency) : "—"}
+          </span>
+        );
+      },
     },
     {
       key: "spend",
       header: "Расход",
       align: "right",
-      render: (row) => (
-        <span className="tabular font-semibold text-ink">
-          {formatMoney(row.spend, currency)}
-        </span>
-      ),
+      render: (row) => {
+        const source = needsRate ? row.spendSource : row.spend;
+        return (
+          <div className="tabular">
+            <span className="font-semibold text-ink">{formatAdMoney(source, adCurrency)}</span>
+            {needsRate ? (
+              <span className="mt-0.5 block text-[11px] font-normal text-faint">
+                {asProjectMoney(source)}
+              </span>
+            ) : null}
+          </div>
+        );
+      },
     },
   ];
 
