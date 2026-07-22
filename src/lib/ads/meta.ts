@@ -10,6 +10,13 @@ const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
 /** Сколько кампаний тянем за раз: у активного кабинета их сотни. */
 const PAGE_LIMIT = 200;
 
+/**
+ * Объявлений просим меньше за раз: вместе с ними тянется вложенный creative
+ * с картинками, и на двухстах строках Meta отвечает «reduce the amount of data».
+ * Страниц станет больше, но пагинация у нас уже есть.
+ */
+const ADS_PAGE_LIMIT = 50;
+
 export type MetaAccount = {
   id: string;
   name: string;
@@ -304,7 +311,7 @@ export async function fetchAds(token: string, accountId: string): Promise<MetaAd
     `${GRAPH_URL}/${account}/ads` +
     `?fields=id,name,status,effective_status,campaign_id,adset_id,preview_shareable_link,` +
     `creative{id,thumbnail_url,image_url,video_id,object_type}` +
-    `&limit=${PAGE_LIMIT}`;
+    `&limit=${ADS_PAGE_LIMIT}`;
 
   const rows: RawAd[] = [];
   let next: string | undefined = url;
