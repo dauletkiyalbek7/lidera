@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { addDays, today } from "@/lib/date-range";
+import { startOfPreviousMonth, today } from "@/lib/date-range";
 import type { Database } from "@/lib/database.types";
 import type { IntegrationCredentials } from "@/lib/queries/integrations";
 import {
@@ -26,8 +26,6 @@ import {
 
 export type AdsSyncResult = { error: string | null; message: string | null };
 
-/** Глубина синхронизации: за раз тянем окно, а не всю историю кабинета. */
-const SYNC_DAYS = 30;
 const MAX_RATE = 100_000;
 
 export type MetaSyncInput = {
@@ -55,8 +53,11 @@ export async function runMetaSync({
     };
   }
 
+  // Окно всегда захватывает прошлый и текущий месяц целиком: от первого числа
+  // прошлого месяца до сегодня. Старые дни из базы не удаляем (upsert), поэтому
+  // при смене месяца прошлые месяцы остаются, а окно едет вперёд само.
   const until = today();
-  const since = addDays(until, -(SYNC_DAYS - 1));
+  const since = startOfPreviousMonth(until);
 
   let account;
   let campaigns;

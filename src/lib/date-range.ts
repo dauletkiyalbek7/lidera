@@ -92,6 +92,11 @@ export function endOfMonth(date: string): string {
   return fromUtc(Date.UTC(year, month, 0));
 }
 
+/** Первое число прошлого месяца — начало окна синхронизации рекламы. */
+export function startOfPreviousMonth(date: string): string {
+  return startOfMonth(addDays(startOfMonth(date), -1));
+}
+
 export function asRangePreset(value: string | undefined): RangePreset {
   return value && (RANGE_PRESETS as readonly string[]).includes(value)
     ? (value as RangePreset)
