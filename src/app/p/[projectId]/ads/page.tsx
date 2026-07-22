@@ -20,7 +20,8 @@ import {
   formatPercent,
 } from "@/lib/format";
 import { sectionBlockTitle } from "@/lib/navigation";
-import { loadAdsData, type CampaignRow } from "@/lib/queries/ads";
+import { PURPOSE_LABELS, type CampaignPurpose } from "@/lib/ads/purpose";
+import { loadAdsData, type AdsTotals, type CampaignRow } from "@/lib/queries/ads";
 import { loadIntegrations } from "@/lib/queries/integrations";
 
 import { SyncPanel } from "./sync-panel";
@@ -68,7 +69,7 @@ export default async function AdsPage({
   const meta = integrations.find((row) => row.provider === "meta");
   const connected = meta?.status === "connected";
 
-  const { campaigns, totals, lastSyncedAt } = ads;
+  const { campaigns, totals, byPurpose, lastSyncedAt } = ads;
   const rate = Number(project.ad_spend_rate);
   const needsRate = Boolean(totals.sourceCurrency && totals.sourceCurrency !== currency);
 
@@ -78,42 +79,64 @@ export default async function AdsPage({
    * В денежных разделах наоборот — там всё сводится к валюте проекта.
    */
   const adCurrency = totals.sourceCurrency ?? currency;
-  const adSpend = needsRate ? totals.spendSource : totals.spend;
   const asProjectMoney = (source: number) =>
     `≈ ${formatMoney(needsRate ? source * rate : source, currency)}`;
 
-  const costPerLead = totals.leads > 0 ? adSpend / totals.leads : null;
-  const ctr = totals.impressions > 0 ? totals.clicks / totals.impressions : null;
+  /** Один набор карточек — для итога, для курсов и для вакансий. */
+  function statsFor(data: AdsTotals) {
+    const money = needsRate ? data.spendSource : data.spend;
+    return [
+      {
+        key: "spend",
+        label: "Расход",
+        value: formatAdMoney(money, adCurrency),
+        accent: true,
+        hint: needsRate ? asProjectMoney(money) : formatDateRange(range.from, range.to),
+      },
+      {
+        key: "leads",
+        label: "Лиды",
+        value: formatNumber(data.leads),
+        hint: "заявки и начатые переписки",
+      },
+      {
+        key: "cpl",
+        label: "Цена лида",
+        value: data.cpl === null ? "—" : formatAdMoney(data.cpl, adCurrency),
+        hint: data.cpl === null || !needsRate ? undefined : asProjectMoney(data.cpl),
+      },
+      {
+        key: "impressions",
+        label: "Показы",
+        value: formatNumber(data.impressions),
+        hint: `охват ${formatNumber(data.reach)}`,
+      },
+      {
+        key: "frequency",
+        label: "Частота",
+        value: data.frequency === null ? "—" : formatNumber(data.frequency, 2),
+        hint: "сколько раз человек увидел",
+      },
+      {
+        key: "clicks",
+        label: "Клики",
+        value: formatNumber(data.clicks),
+        hint: `CTR ${formatPercent(data.ctr, 2)}`,
+      },
+      {
+        key: "cpc",
+        label: "Цена клика",
+        value: data.cpc === null ? "—" : formatAdMoney(data.cpc, adCurrency),
+      },
+      {
+        key: "cpm",
+        label: "Цена 1000 показов",
+        value: data.cpm === null ? "—" : formatAdMoney(data.cpm, adCurrency),
+      },
+    ];
+  }
 
-  const stats = [
-    {
-      key: "spend",
-      label: "Расход за период",
-      value: formatAdMoney(adSpend, adCurrency),
-      accent: true,
-      hint: needsRate
-        ? `${asProjectMoney(totals.spendSource)} по курсу ${formatNumber(rate, 2)}`
-        : formatDateRange(range.from, range.to),
-    },
-    {
-      key: "leads",
-      label: "Лиды из рекламы",
-      value: formatNumber(totals.leads),
-      hint: "заявки и начатые переписки",
-    },
-    {
-      key: "cpl",
-      label: "Цена лида",
-      value: costPerLead === null ? "—" : formatAdMoney(costPerLead, adCurrency),
-      hint: costPerLead === null || !needsRate ? undefined : asProjectMoney(costPerLead),
-    },
-    {
-      key: "ctr",
-      label: "CTR",
-      value: formatPercent(ctr, 2),
-      hint: `${formatNumber(totals.clicks)} кликов · ${formatNumber(totals.impressions)} показов`,
-    },
-  ];
+  const hasVacancy = byPurpose.vacancy.impressions > 0 || byPurpose.vacancy.spendSource > 0;
 
   const columns: Column<CampaignRow>[] = [
     {
@@ -121,7 +144,10 @@ export default async function AdsPage({
       header: "Кампания",
       render: (row) => (
         <div>
-          <span className="font-medium text-ink">{row.name}</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium text-ink">{row.name}</span>
+            {row.purpose === "vacancy" ? <Badge tone="info">Вакансия</Badge> : null}
+          </div>
           <span className="mt-0.5 block text-[11.5px] text-faint">
             {row.objective ? (OBJECTIVE_LABELS[row.objective] ?? row.objective) : "Без цели"}
             {row.dailyBudget
@@ -144,26 +170,72 @@ export default async function AdsPage({
       ),
     },
     {
+      key: "reach",
+      header: "Охват",
+      align: "right",
+      hideOnMobile: true,
+      render: (row) => (
+        <div className="tabular">
+          <span className="text-ink">{formatNumber(row.reach)}</span>
+          <span className="mt-0.5 block text-[11px] text-faint">
+            {formatNumber(row.impressions)} показов
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "frequency",
+      header: "Частота",
+      align: "right",
+      hideOnMobile: true,
+      render: (row) => (
+        <span className="tabular text-muted">
+          {row.frequency === null ? "—" : formatNumber(row.frequency, 2)}
+        </span>
+      ),
+    },
+    {
+      key: "clicks",
+      header: "Клики",
+      align: "right",
+      hideOnMobile: true,
+      render: (row) => (
+        <div className="tabular">
+          <span className="text-ink">{formatNumber(row.clicks)}</span>
+          <span className="mt-0.5 block text-[11px] text-faint">
+            {formatPercent(row.ctr, 2)}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "cpc",
+      header: "Клик / 1000 показов",
+      align: "right",
+      hideOnMobile: true,
+      render: (row) => (
+        <div className="tabular">
+          <span className="text-muted">
+            {row.cpc === null ? "—" : formatAdMoney(row.cpc, adCurrency)}
+          </span>
+          <span className="mt-0.5 block text-[11px] text-faint">
+            {row.cpm === null ? "—" : formatAdMoney(row.cpm, adCurrency)}
+          </span>
+        </div>
+      ),
+    },
+    {
       key: "leads",
       header: "Лиды",
       align: "right",
       render: (row) => (
-        <span className="tabular text-ink">{formatNumber(row.leads)}</span>
-      ),
-    },
-    {
-      key: "cpl",
-      header: "Цена лида",
-      align: "right",
-      hideOnMobile: true,
-      render: (row) => {
-        const source = needsRate ? row.spendSource : row.spend;
-        return (
-          <span className="tabular text-muted">
-            {row.leads > 0 ? formatAdMoney(source / row.leads, adCurrency) : "—"}
+        <div className="tabular">
+          <span className="text-ink">{formatNumber(row.leads)}</span>
+          <span className="mt-0.5 block text-[11px] text-faint">
+            {row.cpl === null ? "—" : formatAdMoney(row.cpl, adCurrency)}
           </span>
-        );
-      },
+        </div>
+      ),
     },
     {
       key: "spend",
@@ -232,8 +304,25 @@ export default async function AdsPage({
       ) : null}
 
       <div className="mt-6">
-        <StatStrip stats={stats} />
+        <StatStrip stats={statsFor(totals)} />
       </div>
+
+      {hasVacancy ? (
+        <>
+          <p className="mt-3 px-1 text-[12px] leading-relaxed text-faint">
+            Выше — весь кабинет. Ниже он разделён: кампании со словом «вакансия» ищут
+            сотрудников, а не учеников, и их отклики нельзя мешать с заявками на курсы —
+            иначе средняя цена лида выходит обманчиво низкой.
+          </p>
+
+          {(["courses", "vacancy"] as CampaignPurpose[]).map((purpose) => (
+            <div key={purpose}>
+              <GroupLabel>{PURPOSE_LABELS[purpose]}</GroupLabel>
+              <StatStrip stats={statsFor(byPurpose[purpose])} />
+            </div>
+          ))}
+        </>
+      ) : null}
 
       {needsRate ? (
         <section className="card mt-4 flex flex-wrap items-end justify-between gap-4 p-5">

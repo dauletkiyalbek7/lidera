@@ -31,6 +31,8 @@ export type MetaDailyInsight = {
   date: string;
   spend: number;
   impressions: number;
+  /** Сколько разных людей увидело рекламу в этот день. */
+  reach: number;
   clicks: number;
   leads: number;
 };
@@ -193,6 +195,7 @@ type RawInsight = {
   date_start?: string;
   spend?: string;
   impressions?: string;
+  reach?: string;
   clicks?: string;
   actions?: MetaAction[];
 };
@@ -212,7 +215,7 @@ export async function fetchDailyInsights(
   const url =
     `${GRAPH_URL}/${account}/insights` +
     `?level=campaign&time_increment=1&time_range=${timeRange}` +
-    `&fields=campaign_id,spend,impressions,clicks,actions&limit=${PAGE_LIMIT}`;
+    `&fields=campaign_id,spend,impressions,reach,clicks,actions&limit=${PAGE_LIMIT}`;
 
   const rows: RawInsight[] = [];
   let next: string | undefined = url;
@@ -232,6 +235,7 @@ export async function fetchDailyInsights(
       date: row.date_start,
       spend: toNumber(row.spend),
       impressions: Math.round(toNumber(row.impressions)),
+      reach: Math.round(toNumber(row.reach)),
       clicks: Math.round(toNumber(row.clicks)),
       leads: countLeads(row.actions),
     }));
@@ -295,7 +299,7 @@ export async function fetchAdDailyInsights(
   const url =
     `${GRAPH_URL}/${account}/insights` +
     `?level=ad&time_increment=1&time_range=${timeRange}` +
-    `&fields=ad_id,campaign_id,spend,impressions,clicks,actions&limit=${PAGE_LIMIT}`;
+    `&fields=ad_id,campaign_id,spend,impressions,reach,clicks,actions&limit=${PAGE_LIMIT}`;
 
   const rows: RawAdInsight[] = [];
   let next: string | undefined = url;
@@ -315,6 +319,7 @@ export async function fetchAdDailyInsights(
       date: row.date_start,
       spend: toNumber(row.spend),
       impressions: Math.round(toNumber(row.impressions)),
+      reach: Math.round(toNumber(row.reach)),
       clicks: Math.round(toNumber(row.clicks)),
       leads: countLeads(row.actions),
     }));

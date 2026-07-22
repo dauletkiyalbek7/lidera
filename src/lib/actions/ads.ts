@@ -126,6 +126,7 @@ export async function syncMetaAds(
       spend_source: row.spend,
       currency: account.currency,
       impressions: row.impressions,
+      reach: row.reach,
       clicks: row.clicks,
       leads: row.leads,
     }));
@@ -183,6 +184,7 @@ export async function syncMetaAds(
         spend_source: row.spend,
         currency: account.currency,
         impressions: row.impressions,
+        reach: row.reach,
         clicks: row.clicks,
         leads: row.leads,
       }));

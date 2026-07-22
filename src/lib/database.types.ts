@@ -21,6 +21,7 @@ export type Database = {
           date: string;
           id: string;
           impressions: number;
+          reach: number;
           leads: number;
           project_id: string;
           spend: number;
@@ -33,6 +34,7 @@ export type Database = {
           date: string;
           id?: string;
           impressions?: number;
+          reach?: number;
           leads?: number;
           project_id: string;
           spend?: number;
@@ -45,6 +47,7 @@ export type Database = {
           date?: string;
           id?: string;
           impressions?: number;
+          reach?: number;
           leads?: number;
           project_id?: string;
           spend?: number;
@@ -267,6 +270,7 @@ export type Database = {
           date: string;
           id: string;
           impressions: number;
+          reach: number;
           leads: number;
           project_id: string;
           spend: number;
@@ -279,6 +283,7 @@ export type Database = {
           date: string;
           id?: string;
           impressions?: number;
+          reach?: number;
           leads?: number;
           project_id: string;
           spend?: number;
@@ -291,6 +296,7 @@ export type Database = {
           date?: string;
           id?: string;
           impressions?: number;
+          reach?: number;
           leads?: number;
           project_id?: string;
           spend?: number;
