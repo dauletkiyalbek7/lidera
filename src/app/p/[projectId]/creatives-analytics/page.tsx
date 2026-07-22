@@ -8,15 +8,14 @@ import { Icon } from "@/components/ui/icon";
 import { requireSectionAccess } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { readDateRange } from "@/lib/date-range";
-import { PURPOSE_LABELS, type CampaignPurpose } from "@/lib/ads/purpose";
+import { setCplLimit } from "@/lib/actions/ads";
+import { STATUS_META, type CreativeStatus } from "@/lib/ads/creative-status";
 import {
   formatAdMoney,
   formatDateRange,
   formatMoney,
   formatNumber,
   formatPercent,
-  formatRatio,
-  plural,
 } from "@/lib/format";
 import { sectionBlockTitle } from "@/lib/navigation";
 import { loadCreativesAnalytics, type CreativeRow } from "@/lib/queries/creatives";
@@ -24,37 +23,32 @@ import { loadCreativesAnalytics, type CreativeRow } from "@/lib/queries/creative
 /**
  * Аналитика креативов: связка креатив → лид → продажа (ТЗ, Блок 3).
  *
- * Раздел отвечает на один вопрос: какое объявление стоит денег, а какое их
- * приносит. Поэтому суммы здесь — в валюте рекламного кабинета, как в разделе
- * «Реклама», а тенге идут подписью снизу.
+ * Только курсы: вакансии сюда не мешаем. Каждому объявлению — статус по цене
+ * лида (топ / норма / слабый / выключить), чтобы сразу видеть, что масштабировать,
+ * а что гасить. Суммы — в валюте кабинета, тенге подписью снизу.
  */
 
-type PurposeFilter = CampaignPurpose | "all";
+type StatusFilter = CreativeStatus | "all";
 
-const PURPOSE_TABS: { key: PurposeFilter; title: string }[] = [
+const STATUS_FILTERS: { key: StatusFilter; title: string }[] = [
   { key: "all", title: "Все" },
-  { key: "courses", title: PURPOSE_LABELS.courses },
-  { key: "vacancy", title: PURPOSE_LABELS.vacancy },
+  { key: "off", title: STATUS_META.off.label },
+  { key: "weak", title: STATUS_META.weak.label },
+  { key: "ok", title: STATUS_META.ok.label },
+  { key: "top", title: STATUS_META.top.label },
 ];
 
-function readPurpose(raw: string | undefined): PurposeFilter {
-  return raw === "courses" || raw === "vacancy" ? raw : "all";
+function readStatus(raw: string | undefined): StatusFilter {
+  return raw && raw in STATUS_META ? (raw as CreativeStatus) : "all";
 }
 
 /**
  * Миниатюра объявления.
  *
  * Обычный <img>, а не next/image: ссылки ведут на CDN Meta, живут недолго и
- * меняются при каждой синхронизации — оптимизировать там нечего, а лишний
- * прокси только добавит точек отказа.
+ * меняются при каждой синхронизации — оптимизировать там нечего.
  */
-function Thumb({
-  row,
-  size,
-}: {
-  row: CreativeRow;
-  size: "sm" | "lg";
-}) {
+function Thumb({ row, size }: { row: CreativeRow; size: "sm" | "lg" }) {
   const box = size === "lg" ? "h-[132px] w-full" : "h-11 w-11";
 
   return (
@@ -99,25 +93,28 @@ export default async function CreativesAnalyticsPage({
     range?: string;
     from?: string;
     to?: string;
-    purpose?: string;
+    status?: string;
     all?: string;
   }>;
 }) {
   const { projectId } = await params;
   const query = await searchParams;
   const range = readDateRange(query);
-  const purpose = readPurpose(query.purpose);
+  const statusFilter = readStatus(query.status);
   const onlyActive = query.all !== "1";
 
-  const [{ project }, data] = await Promise.all([
-    requireSectionAccess(projectId, "creatives-analytics"),
-    loadCreativesAnalytics(projectId, range, { purpose, onlyActive }),
-  ]);
+  const { project, role, canManage } = await requireSectionAccess(
+    projectId,
+    "creatives-analytics",
+  );
+  const cplLimit = Number(project.cpl_limit);
+  const data = await loadCreativesAnalytics(projectId, range, { onlyActive, cplLimit });
 
   const currency = project.currency;
   const rate = Number(project.ad_spend_rate);
-  const { rows, totals, attributedLeads, totalLeads, sourceCurrency, hidden } = data;
+  const { rows, totals, sourceCurrency, hidden, statusCounts } = data;
 
+  const mayManage = canManage || role === "director";
   const needsRate = Boolean(sourceCurrency && sourceCurrency !== currency);
   const adCurrency = sourceCurrency ?? currency;
 
@@ -129,18 +126,16 @@ export default async function CreativesAnalyticsPage({
     needsRate ? row.spendSource : row.spend;
 
   const totalSpend = pick(totals);
-  /** Цена лида по данным кабинета: CRM-привязка появляется не сразу. */
   const platformCpl = totals.platformLeads > 0 ? totalSpend / totals.platformLeads : null;
-  const coverage = totalLeads > 0 ? attributedLeads / totalLeads : null;
 
-  function href(next: Partial<{ purpose: PurposeFilter; all: string | null }>): string {
+  function href(next: Partial<{ status: StatusFilter; all: string | null }>): string {
     const params = new URLSearchParams();
     if (query.range) params.set("range", query.range);
     if (query.from) params.set("from", query.from);
     if (query.to) params.set("to", query.to);
 
-    const nextPurpose = next.purpose ?? purpose;
-    if (nextPurpose !== "all") params.set("purpose", nextPurpose);
+    const nextStatus = next.status ?? statusFilter;
+    if (nextStatus !== "all") params.set("status", nextStatus);
 
     const nextAll = next.all === undefined ? (onlyActive ? null : "1") : next.all;
     if (nextAll) params.set("all", nextAll);
@@ -159,33 +154,46 @@ export default async function CreativesAnalyticsPage({
       note: asProject(totalSpend),
     },
     {
-      key: "leads",
-      label: `Лиды кабинета: ${formatNumber(totals.platformLeads)} · цена`,
+      key: "cpl",
+      label: `Цена лида · ${formatNumber(totals.platformLeads)} лидов`,
       icon: "leads" as const,
       value: platformCpl === null ? "—" : formatAdMoney(platformCpl, adCurrency),
-      note: platformCpl === null ? null : asProject(platformCpl),
+      note:
+        platformCpl === null
+          ? null
+          : `лимит ${formatAdMoney(cplLimit, adCurrency)}`,
       accent: true,
     },
     {
-      key: "sales",
-      label: `Продажи из CRM: ${formatNumber(totals.sales)} · выручка`,
-      icon: "sales" as const,
-      value: formatMoney(totals.revenue, currency),
-      note: totals.sales > 0 ? `ROAS ${formatRatio(totals.roas)}` : "ждём первых продаж",
-      muted: totals.sales === 0,
+      key: "off",
+      label: "К выключению",
+      icon: "shield" as const,
+      value: formatNumber(statusCounts.off),
+      note: statusCounts.off > 0 ? "дороже лимита или без лидов" : "таких нет — хорошо",
+      danger: statusCounts.off > 0,
     },
     {
-      key: "coverage",
-      label: "Лидов с известным объявлением",
-      icon: "funnel" as const,
-      value: formatPercent(coverage),
-      note: `${formatNumber(attributedLeads)} из ${formatNumber(totalLeads)} за период`,
-      muted: !coverage,
+      key: "top",
+      label: "Топ — можно масштабировать",
+      icon: "sparkle" as const,
+      value: formatNumber(statusCounts.top),
+      note: statusCounts.top > 0 ? "дешёвый лид, есть объём" : "пока нет явных лидеров",
+      muted: statusCounts.top === 0,
     },
   ];
 
-  /** Витрина: самые заметные объявления периода — их владелец узнаёт в лицо. */
-  const featured = rows.slice(0, 6);
+  const filtered =
+    statusFilter === "all" ? rows : rows.filter((row) => row.verdict === statusFilter);
+
+  // Рекомендации: сначала то, что требует действия (выключить, затем слабые);
+  // если таких нет — показываем лучших, которых стоит масштабировать.
+  const needsAction = rows
+    .filter((row) => row.verdict === "off" || row.verdict === "weak")
+    .slice(0, 6);
+  const highlights =
+    needsAction.length > 0 ? needsAction : rows.filter((row) => row.verdict === "top").slice(0, 6);
+  const highlightsTitle =
+    needsAction.length > 0 ? "Требуют внимания" : "Лучшие — можно добавить бюджет";
 
   const columns: Column<CreativeRow>[] = [
     {
@@ -208,14 +216,19 @@ export default async function CreativesAnalyticsPage({
               ) : (
                 <span className="truncate font-medium text-ink">{row.name}</span>
               )}
-              {row.status === "ACTIVE" ? <Badge tone="positive">активен</Badge> : null}
-              {row.purpose === "vacancy" ? <Badge>вакансия</Badge> : null}
             </span>
             <span className="mt-0.5 block truncate text-[11.5px] text-faint">
               {row.adSetName ?? row.campaignName ?? "Без кампании"}
             </span>
           </div>
         </div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Статус",
+      render: (row) => (
+        <Badge tone={STATUS_META[row.verdict].tone}>{STATUS_META[row.verdict].label}</Badge>
       ),
     },
     {
@@ -248,14 +261,20 @@ export default async function CreativesAnalyticsPage({
       key: "cpl",
       header: "Цена лида",
       align: "right",
-      render: (row) => {
-        const cpl = row.platformLeads > 0 ? pick(row) / row.platformLeads : null;
-        return (
-          <span className="tabular text-muted">
-            {cpl === null ? "—" : formatAdMoney(cpl, adCurrency)}
-          </span>
-        );
-      },
+      render: (row) => (
+        <span
+          className={cn(
+            "tabular",
+            row.verdict === "off"
+              ? "font-semibold text-negative"
+              : row.verdict === "top"
+                ? "font-semibold text-brand-700"
+                : "text-muted",
+          )}
+        >
+          {row.cplSource === null ? "—" : formatAdMoney(row.cplSource, adCurrency)}
+        </span>
+      ),
     },
     {
       key: "clicks",
@@ -270,18 +289,10 @@ export default async function CreativesAnalyticsPage({
       ),
     },
     {
-      key: "impressions",
-      header: "Показы",
-      align: "right",
-      hideOnMobile: true,
-      render: (row) => (
-        <span className="tabular text-muted">{formatNumber(row.impressions)}</span>
-      ),
-    },
-    {
       key: "sales",
       header: "Продажи",
       align: "right",
+      hideOnMobile: true,
       render: (row) => (
         <div className="tabular">
           <span className={row.sales > 0 ? "font-semibold text-brand-700" : "text-muted"}>
@@ -300,7 +311,7 @@ export default async function CreativesAnalyticsPage({
       <PageHeader
         eyebrow={sectionBlockTitle("creatives-analytics")}
         title="Аналитика креативов"
-        subtitle={`Креатив → лид → продажа · ${formatDateRange(range.from, range.to)}`}
+        subtitle={`Только курсы · ${formatDateRange(range.from, range.to)}`}
         actions={
           <DateRangePicker
             preset={range.preset}
@@ -319,6 +330,7 @@ export default async function CreativesAnalyticsPage({
               "card group relative overflow-hidden p-5 transition duration-200",
               "hover:-translate-y-0.5 hover:shadow-[var(--shadow-pop)]",
               card.accent && "ring-1 ring-brand-100",
+              card.danger && "ring-1 ring-rose-100",
             )}
           >
             <div className="flex items-start justify-between gap-3">
@@ -328,9 +340,11 @@ export default async function CreativesAnalyticsPage({
                   "inline-flex h-7 w-7 items-center justify-center rounded-[9px] transition group-hover:scale-110",
                   card.accent
                     ? "bg-brand-50 text-brand"
-                    : card.muted
-                      ? "bg-canvas text-faint"
-                      : "bg-canvas text-muted",
+                    : card.danger
+                      ? "bg-rose-50 text-rose-600"
+                      : card.muted
+                        ? "bg-canvas text-faint"
+                        : "bg-canvas text-muted",
                 )}
               >
                 <Icon name={card.icon} className="h-4 w-4" />
@@ -339,87 +353,93 @@ export default async function CreativesAnalyticsPage({
             <p
               className={cn(
                 "tabular mt-2 text-[26px] font-semibold leading-none tracking-tight",
-                card.accent ? "text-brand-700" : card.muted ? "text-muted" : "text-ink",
+                card.accent
+                  ? "text-brand-700"
+                  : card.danger
+                    ? "text-negative"
+                    : card.muted
+                      ? "text-muted"
+                      : "text-ink",
               )}
             >
               {card.value}
             </p>
-            {card.note ? (
-              <p className="mt-1.5 text-[11.5px] text-faint">{card.note}</p>
-            ) : null}
+            {card.note ? <p className="mt-1.5 text-[11.5px] text-faint">{card.note}</p> : null}
           </article>
         ))}
       </section>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <nav className="flex gap-1 rounded-[12px] bg-canvas p-1" aria-label="Назначение">
-          {PURPOSE_TABS.map((tab) => (
-            <Link
-              key={tab.key}
-              href={href({ purpose: tab.key })}
-              className={cn(
-                "rounded-[9px] px-3.5 py-1.5 text-[13px] transition",
-                purpose === tab.key
-                  ? "bg-white text-ink shadow-[var(--shadow-card)]"
-                  : "text-muted hover:text-ink",
-              )}
-            >
-              {tab.title}
-            </Link>
-          ))}
-        </nav>
+      {mayManage ? (
+        <form
+          action={setCplLimit}
+          className="card mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 p-4"
+        >
+          <input type="hidden" name="project_id" value={projectId} />
+          <div className="flex items-center gap-2">
+            <Icon name="sliders" className="h-4 w-4 text-muted" />
+            <label htmlFor="cpl-limit" className="text-[13px] text-ink">
+              Лимит цены лида
+            </label>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              id="cpl-limit"
+              name="limit"
+              type="number"
+              step="0.01"
+              min="0.01"
+              defaultValue={cplLimit}
+              className="tabular w-24 rounded-[10px] border border-line bg-white px-3 py-1.5 text-[13px] text-ink outline-none focus:border-brand"
+            />
+            <span className="text-[13px] text-muted">{adCurrency === "USD" ? "$" : adCurrency}</span>
+          </div>
+          <button
+            type="submit"
+            className="rounded-[10px] bg-brand px-3.5 py-1.5 text-[13px] font-medium text-white transition hover:bg-brand-600"
+          >
+            Сохранить
+          </button>
+          <p className="text-[12px] text-faint">
+            Дороже этого объявление помечается «выключить». Топ — дешевле половины лимита.
+          </p>
+        </form>
+      ) : null}
 
-        <p className="text-[12px] text-faint">
-          {formatNumber(rows.length)} {plural(rows.length, ["объявление", "объявления", "объявлений"])}
-          {hidden > 0 ? (
-            <>
-              {" · "}
-              <Link
-                href={href({ all: onlyActive ? "1" : null })}
-                className="text-brand-700 transition hover:text-brand"
-              >
-                {onlyActive ? `показать все (+${formatNumber(hidden)})` : "только активные"}
-              </Link>
-            </>
-          ) : null}
-        </p>
-      </div>
-
-      {featured.length > 0 ? (
+      {highlights.length > 0 ? (
         <>
-          <GroupLabel>Заметнее всего за период</GroupLabel>
+          <GroupLabel>{highlightsTitle}</GroupLabel>
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {featured.map((row) => {
-              const cpl = row.platformLeads > 0 ? pick(row) / row.platformLeads : null;
+            {highlights.map((row) => {
+              const meta = STATUS_META[row.verdict];
               return (
                 <article
                   key={row.id}
                   className="card group overflow-hidden p-3 transition duration-200 hover:-translate-y-0.5 hover:shadow-[var(--shadow-pop)]"
                 >
-                  <Thumb row={row} size="lg" />
+                  <div className="relative">
+                    <Thumb row={row} size="lg" />
+                    <span className="absolute left-2 top-2">
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
+                    </span>
+                  </div>
 
                   <div className="mt-3 px-1.5 pb-1">
-                    <div className="flex items-start justify-between gap-2">
-                      {row.previewUrl ? (
-                        <a
-                          href={row.previewUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="truncate text-[13.5px] font-medium text-ink transition hover:text-brand-700"
-                        >
-                          {row.name}
-                        </a>
-                      ) : (
-                        <span className="truncate text-[13.5px] font-medium text-ink">
-                          {row.name}
-                        </span>
-                      )}
-                      {row.purpose === "vacancy" ? <Badge>вакансия</Badge> : null}
-                    </div>
-                    <p className="mt-0.5 truncate text-[11.5px] text-faint">
-                      {row.adSetName ?? row.campaignName ?? "Без кампании"}
-                    </p>
+                    {row.previewUrl ? (
+                      <a
+                        href={row.previewUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block truncate text-[13.5px] font-medium text-ink transition hover:text-brand-700"
+                      >
+                        {row.name}
+                      </a>
+                    ) : (
+                      <span className="block truncate text-[13.5px] font-medium text-ink">
+                        {row.name}
+                      </span>
+                    )}
+                    <p className="mt-0.5 text-[11.5px] text-faint">{meta.advice}</p>
 
                     <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3">
                       <div>
@@ -436,8 +456,13 @@ export default async function CreativesAnalyticsPage({
                       </div>
                       <div>
                         <dt className="text-[11px] text-faint">Цена лида</dt>
-                        <dd className="tabular mt-0.5 text-[13px] font-medium text-brand-700">
-                          {cpl === null ? "—" : formatAdMoney(cpl, adCurrency)}
+                        <dd
+                          className={cn(
+                            "tabular mt-0.5 text-[13px] font-medium",
+                            row.verdict === "off" ? "text-negative" : "text-brand-700",
+                          )}
+                        >
+                          {row.cplSource === null ? "—" : formatAdMoney(row.cplSource, adCurrency)}
                         </dd>
                       </div>
                     </dl>
@@ -449,31 +474,43 @@ export default async function CreativesAnalyticsPage({
         </>
       ) : null}
 
-      {totalLeads > 0 && attributedLeads < totalLeads ? (
-        <section className="card mt-6 flex items-start gap-4 p-5">
-          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-amber-50 text-amber-700">
-            <Icon name="funnel" className="h-5 w-5" />
-          </span>
-          <div>
-            <h2 className="text-[14px] font-semibold text-ink">
-              {formatNumber(totalLeads - attributedLeads)}{" "}
-              {plural(totalLeads - attributedLeads, ["лид", "лида", "лидов"])} без объявления
-            </h2>
-            <p className="mt-1 max-w-[760px] text-[13px] leading-relaxed text-muted">
-              У этих заявок неизвестно, какая реклама их привела, поэтому в колонке «в CRM»
-              они не участвуют. Из WhatsApp объявление приходит само — Meta прикладывает его
-              к первому сообщению. С сайта нужна метка: впишите в кабинете в «Параметры URL»
-              строку <code className="rounded bg-canvas px-1">utm_content=&#123;&#123;ad.id&#125;&#125;</code>.
-            </p>
-          </div>
-        </section>
-      ) : null}
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex flex-wrap gap-1 rounded-[12px] bg-canvas p-1" aria-label="Статус">
+          {STATUS_FILTERS.map((tab) => {
+            const count = tab.key === "all" ? rows.length : statusCounts[tab.key];
+            return (
+              <Link
+                key={tab.key}
+                href={href({ status: tab.key })}
+                className={cn(
+                  "rounded-[9px] px-3 py-1.5 text-[13px] transition",
+                  statusFilter === tab.key
+                    ? "bg-white text-ink shadow-[var(--shadow-card)]"
+                    : "text-muted hover:text-ink",
+                )}
+              >
+                {tab.title}
+                <span className="ml-1.5 text-faint">{formatNumber(count)}</span>
+              </Link>
+            );
+          })}
+        </nav>
 
-      <GroupLabel>Все объявления</GroupLabel>
+        {hidden > 0 ? (
+          <Link
+            href={href({ all: onlyActive ? "1" : null })}
+            className="text-[12px] text-brand-700 transition hover:text-brand"
+          >
+            {onlyActive ? `показать все (+${formatNumber(hidden)})` : "только активные"}
+          </Link>
+        ) : null}
+      </div>
+
+      <GroupLabel>Все объявления курсов</GroupLabel>
 
       <DataTable
         columns={columns}
-        rows={rows}
+        rows={filtered}
         rowKey={(row) => row.id}
         empty={{
           icon: "creative",
@@ -483,9 +520,9 @@ export default async function CreativesAnalyticsPage({
       />
 
       <p className="mt-3 px-1 text-[12px] leading-relaxed text-faint">
-        «Лиды» — то, что насчитала Meta: заявки с форм и начатые переписки. «в CRM» — те, кто
-        реально дошёл до платформы; расхождение нормально и показывает потери. Цена лида
-        считается от расхода именно этого объявления, суммы — в валюте кабинета.
+        Статус считается по цене лида из кабинета: дороже лимита — «выключить», дешевле
+        половины лимита с объёмом — «топ». «в CRM» — заявки, дошедшие до платформы; они
+        появятся, когда подключите приём заявок. Суммы — в валюте кабинета.
       </p>
     </main>
   );

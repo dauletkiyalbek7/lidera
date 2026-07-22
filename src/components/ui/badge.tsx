@@ -1,6 +1,14 @@
 import { cn } from "@/lib/cn";
 
-type Tone = "brand" | "neutral" | "muted" | "positive" | "negative" | "warning" | "info";
+type Tone =
+  | "brand"
+  | "neutral"
+  | "muted"
+  | "positive"
+  | "negative"
+  | "warning"
+  | "info"
+  | "top";
 
 const TONES: Record<Tone, string> = {
   brand: "bg-brand-50 text-brand-700 ring-brand-100",
@@ -10,6 +18,8 @@ const TONES: Record<Tone, string> = {
   negative: "bg-rose-50 text-rose-600 ring-rose-100",
   warning: "bg-amber-50 text-amber-700 ring-amber-100",
   info: "bg-indigo-50 text-indigo-600 ring-indigo-100",
+  // Насыщенный — лучший креатив должно быть видно сразу.
+  top: "bg-brand text-white ring-brand",
 };
 
 export function Badge({

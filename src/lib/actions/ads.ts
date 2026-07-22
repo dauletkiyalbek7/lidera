@@ -79,3 +79,28 @@ export async function setAdSpendRate(formData: FormData): Promise<void> {
 
   revalidatePath(`/p/${projectId}/ads`);
 }
+
+/** Предел допустимой цены лида по креативу дороже которой — «выключить». */
+const MAX_CPL_LIMIT = 100_000;
+
+export async function setCplLimit(formData: FormData): Promise<void> {
+  const projectId = String(formData.get("project_id") ?? "");
+  const { role, canManage, user } = await requireProjectContext(projectId);
+  if (!mayManageAds(role, canManage)) return;
+
+  const raw = Number(String(formData.get("limit") ?? "").replace(",", "."));
+  if (!Number.isFinite(raw) || raw <= 0) return;
+  const limit = Math.min(raw, MAX_CPL_LIMIT);
+
+  const supabase = await createSupabaseServerClient();
+  await supabase.from("projects").update({ cpl_limit: limit }).eq("id", projectId);
+
+  await supabase.from("activity_log").insert({
+    project_id: projectId,
+    actor_id: user.id,
+    action: "ads.cpl_limit_changed",
+    details: { limit },
+  });
+
+  revalidatePath(`/p/${projectId}/creatives-analytics`);
+}

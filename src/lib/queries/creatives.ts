@@ -4,6 +4,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createdAtBounds, type DateRange } from "@/lib/date-range";
 import { campaignPurpose, type CampaignPurpose } from "@/lib/ads/purpose";
 import {
+  evaluateCreative,
+  STATUS_ORDER,
+  type CreativeStatus,
+} from "@/lib/ads/creative-status";
+import {
   derivePerformance,
   EMPTY_AD_STATS,
   EMPTY_CRM_STATS,
@@ -30,6 +35,10 @@ export type CreativeRow = CreativePerformance & {
   adSetName: string | null;
   /** Курс или наём: смешивать их цену лида нельзя. */
   purpose: CampaignPurpose;
+  /** Оценка по цене лида: топ / норма / слабый / выключить / мало данных. */
+  verdict: CreativeStatus;
+  /** Цена лида кабинета — по ней вынесен вердикт. */
+  cplSource: number | null;
 };
 
 export type CreativesData = {
@@ -43,23 +52,26 @@ export type CreativesData = {
   sourceCurrency: string | null;
   /** Сколько строк спрятал фильтр «только с расходом». */
   hidden: number;
+  /** Сколько креативов в каждом статусе — для сводки сверху. */
+  statusCounts: Record<CreativeStatus, number>;
 };
 
 export type CreativesOptions = {
   /** Кабинет копит тысячи старых объявлений — по умолчанию прячем спящие. */
   onlyActive?: boolean;
-  purpose?: CampaignPurpose | "all";
+  /** Предел цены лида (валюта кабинета): дороже — статус «выключить». */
+  cplLimit: number;
 };
 
 export async function loadCreativesAnalytics(
   projectId: string,
   range: DateRange,
-  options: CreativesOptions = {},
+  options: CreativesOptions,
 ): Promise<CreativesData> {
   const supabase = await createSupabaseServerClient();
   const { since, until } = createdAtBounds(range);
   const onlyActive = options.onlyActive ?? true;
-  const purposeFilter = options.purpose ?? "all";
+  const cplLimit = options.cplLimit;
 
   let leadsQuery = supabase
     .from("leads")
@@ -164,6 +176,12 @@ export async function loadCreativesAnalytics(
         ? (purposeByCampaign.get(creative.campaign_id) ?? "courses")
         : "courses";
 
+    const { status: verdict, cpl: cplSource } = evaluateCreative(
+      ads.spendSource,
+      ads.platformLeads,
+      cplLimit,
+    );
+
     return {
       id: creative.id,
       name: creative.name,
@@ -177,23 +195,37 @@ export async function loadCreativesAnalytics(
         : null,
       adSetName: creative.ad_set_id ? (setById.get(creative.ad_set_id)?.name ?? null) : null,
       purpose,
+      verdict,
+      cplSource,
       ...derivePerformance(ads, crm),
     };
   });
 
-  const byPurpose =
-    purposeFilter === "all" ? all : all.filter((row) => row.purpose === purposeFilter);
+  // Раздел про курсы: вакансии сюда не мешаем — по решению владельца.
+  const courses = all.filter((row) => row.purpose === "courses");
 
   // Показываем то, что жило в выбранном периоде: тратило деньги или принесло
   // заявку. Остальное — тысячи спящих объявлений, они только мешают смотреть.
   const visible = onlyActive
-    ? byPurpose.filter((row) => row.spendSource > 0 || row.spend > 0 || row.leads > 0)
-    : byPurpose;
+    ? courses.filter((row) => row.spendSource > 0 || row.spend > 0 || row.leads > 0)
+    : courses;
 
-  // Сначала то, что приносит деньги; при равенстве — по расходу.
+  // Сначала то, что требует действия (выключить/слабые), потом лучшие.
   visible.sort(
-    (a, b) => b.revenue - a.revenue || b.sales - a.sales || b.spendSource - a.spendSource,
+    (a, b) =>
+      STATUS_ORDER[a.verdict] - STATUS_ORDER[b.verdict] ||
+      b.spendSource - a.spendSource ||
+      b.revenue - a.revenue,
   );
+
+  const statusCounts: Record<CreativeStatus, number> = {
+    top: 0,
+    ok: 0,
+    weak: 0,
+    off: 0,
+    nodata: 0,
+  };
+  for (const row of visible) statusCounts[row.verdict] += 1;
 
   const totalAds = visible.reduce<CreativeAdStats>(
     (sum, row) => ({
@@ -222,6 +254,7 @@ export async function loadCreativesAnalytics(
     totalLeads,
     totals: derivePerformance(totalAds, totalCrm),
     sourceCurrency,
-    hidden: byPurpose.length - visible.length,
+    hidden: courses.length - visible.length,
+    statusCounts,
   };
 }

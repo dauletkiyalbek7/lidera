@@ -271,12 +271,18 @@ export type MetaAd = {
   mediaType: MetaMediaType;
 };
 
+type RawStorySpec = {
+  video_data?: { image_url?: string };
+  link_data?: { image_url?: string };
+};
+
 type RawAdCreative = {
   id?: string;
   thumbnail_url?: string;
   image_url?: string;
   video_id?: string;
   object_type?: string;
+  object_story_spec?: RawStorySpec;
 };
 
 type RawAd = {
@@ -304,13 +310,33 @@ function readMediaType(creative: RawAdCreative | undefined): MetaMediaType {
   return null;
 }
 
+/**
+ * Обложка объявления.
+ *
+ * thumbnail_url у Meta крошечный (64px) и в таблице размывается. Полноразмерная
+ * картинка — в object_story_spec: у видео это загруженная обложка, у баннера —
+ * само изображение. thumbnail_url оставляем последним запасным вариантом.
+ */
+function readCover(creative: RawAdCreative | undefined): string | null {
+  if (!creative) return null;
+  const spec = creative.object_story_spec;
+  return (
+    spec?.video_data?.image_url ??
+    spec?.link_data?.image_url ??
+    creative.image_url ??
+    creative.thumbnail_url ??
+    null
+  );
+}
+
 /** Объявления кабинета — это и есть креативы для сквозной аналитики (ТЗ, Блок 3). */
 export async function fetchAds(token: string, accountId: string): Promise<MetaAd[]> {
   const account = normalizeAccountId(accountId);
   const url =
     `${GRAPH_URL}/${account}/ads` +
     `?fields=id,name,status,effective_status,campaign_id,adset_id,preview_shareable_link,` +
-    `creative{id,thumbnail_url,image_url,video_id,object_type}` +
+    // object_story_spec целиком: подполя image_url через развёртку Meta не отдаёт.
+    `creative{id,thumbnail_url,image_url,video_id,object_type,object_story_spec}` +
     `&limit=${ADS_PAGE_LIMIT}`;
 
   const rows: RawAd[] = [];
@@ -328,9 +354,8 @@ export async function fetchAds(token: string, accountId: string): Promise<MetaAd
     campaignExternalId: ad.campaign_id ?? null,
     adSetExternalId: ad.adset_id ?? null,
     previewUrl: ad.preview_shareable_link ?? null,
-    // thumbnail_url есть и у видео — это кадр из ролика, ровно то, что нужно
-    // показать в таблице. image_url крупнее, берём его как запасной.
-    thumbnailUrl: ad.creative?.thumbnail_url ?? ad.creative?.image_url ?? null,
+    // Крупная обложка из object_story_spec; мелкий thumbnail — запасной.
+    thumbnailUrl: readCover(ad.creative),
     mediaType: readMediaType(ad.creative),
   }));
 }

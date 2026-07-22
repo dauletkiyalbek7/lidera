@@ -1190,6 +1190,7 @@ export type Database = {
         Row: {
           accent_color: string | null
           ad_spend_rate: number
+          cpl_limit: number
           created_at: string
           currency: string
           description: string | null
@@ -1205,6 +1206,7 @@ export type Database = {
         Insert: {
           accent_color?: string | null
           ad_spend_rate?: number
+          cpl_limit?: number
           created_at?: string
           currency?: string
           description?: string | null
@@ -1220,6 +1222,7 @@ export type Database = {
         Update: {
           accent_color?: string | null
           ad_spend_rate?: number
+          cpl_limit?: number
           created_at?: string
           currency?: string
           description?: string | null
