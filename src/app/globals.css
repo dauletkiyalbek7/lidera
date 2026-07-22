@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/*
+  Lidera — светлая тема (ТЗ, раздел 11).
+  Один источник правды для цветов, радиусов и теней: компоненты берут токены отсюда.
+*/
+@theme {
+  --color-brand-50: #e9fbf4;
+  --color-brand-100: #c8f5e3;
+  --color-brand-200: #93ebca;
+  --color-brand-300: #56dfae;
+  --color-brand-400: #23d698;
+  --color-brand: #08d08d;
+  --color-brand-600: #05ab74;
+  --color-brand-700: #04835a;
+
+  --color-canvas: #f7f8fa;
+  --color-surface: #ffffff;
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-faint: #94a3b8;
+  --color-line: #e9ecf2;
+
+  --color-positive: #08d08d;
+  --color-negative: #f43f5e;
+  --color-warning: #f59e0b;
+  --color-info: #6366f1;
+
+  --radius-card: 16px;
+  --radius-control: 12px;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -12px rgb(15 23 42 / 0.10);
+  --shadow-pop: 0 8px 16px -6px rgb(15 23 42 / 0.10), 0 24px 48px -16px rgb(15 23 42 / 0.18);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  /* Цифры в метриках и таблицах не должны «прыгать» при обновлении. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background-color: var(--color-brand-100);
+    color: var(--color-brand-700);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+}
