@@ -40,6 +40,15 @@ const VACANCY_WORDS = [
 const WORD_SPLIT = /[^\p{L}\p{N}]+/u;
 
 /**
+ * Схлопывает повторы букв: «vaaaac» → «vac», «вааакансия» → «вакансия».
+ * Названия в кабинете тянут гласные («bota vaaaac — Копия»), и без этого
+ * такая кампания уезжает в курсы и портит цену лида.
+ */
+function collapseRuns(value: string): string {
+  return value.replace(/(.)\1+/gu, "$1");
+}
+
+/**
  * «вак» ищем как отдельное слово, а не как кусок другого: иначе «вакцина»
  * или «Wakeboard» превратятся в вакансию. Длинные слова ищем и внутри —
  * их случайно не встретишь.
@@ -48,12 +57,14 @@ export function campaignPurpose(name: string | null | undefined): CampaignPurpos
   if (!name) return "courses";
 
   const lowered = name.toLowerCase();
+  const collapsed = collapseRuns(lowered);
   const words = lowered.split(WORD_SPLIT).filter(Boolean);
+  const collapsedWords = words.map(collapseRuns);
 
   for (const word of VACANCY_WORDS) {
     if (word.length <= 3) {
-      if (words.includes(word)) return "vacancy";
-    } else if (lowered.includes(word)) {
+      if (words.includes(word) || collapsedWords.includes(word)) return "vacancy";
+    } else if (lowered.includes(word) || collapsed.includes(word)) {
       return "vacancy";
     }
   }
