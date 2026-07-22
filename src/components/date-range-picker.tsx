@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { CalendarRange } from "@/components/calendar-range";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/cn";
 import {
@@ -43,8 +44,6 @@ export function DateRangePicker({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
-  const [customFrom, setCustomFrom] = useState(from ?? "");
-  const [customTo, setCustomTo] = useState(to ?? "");
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -106,9 +105,9 @@ export function DateRangePicker({
         <div
           role="dialog"
           aria-label="Выбор периода"
-          className="card absolute right-0 z-40 mt-2 w-[280px] p-2 shadow-[var(--shadow-pop)]"
+          className="card absolute right-0 z-40 mt-2 flex w-[min(92vw,520px)] flex-col gap-3 p-3 shadow-[var(--shadow-pop)] sm:flex-row"
         >
-          <ul className="flex flex-col">
+          <ul className="flex shrink-0 flex-col sm:w-[190px]">
             {PRESETS.map((value) => (
               <li key={value}>
                 <button
@@ -128,37 +127,15 @@ export function DateRangePicker({
             ))}
           </ul>
 
-          <div className="mt-2 border-t border-line px-3 pb-1 pt-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-faint">
-              Произвольный период
+          <div className="border-t border-line pt-3 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
+            <p className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-faint">
+              Свой период
             </p>
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="date"
-                value={customFrom}
-                max={customTo || undefined}
-                onChange={(event) => setCustomFrom(event.target.value)}
-                aria-label="Дата от"
-                className="h-9 w-full rounded-[10px] border border-line bg-canvas px-2 text-[12px] text-ink focus:border-brand-200 focus:outline-none"
-              />
-              <span className="text-faint">—</span>
-              <input
-                type="date"
-                value={customTo}
-                min={customFrom || undefined}
-                onChange={(event) => setCustomTo(event.target.value)}
-                aria-label="Дата до"
-                className="h-9 w-full rounded-[10px] border border-line bg-canvas px-2 text-[12px] text-ink focus:border-brand-200 focus:outline-none"
-              />
-            </div>
-            <button
-              type="button"
-              disabled={!customFrom || !customTo}
-              onClick={() => apply("custom", customFrom, customTo)}
-              className="mt-2 h-9 w-full rounded-[10px] bg-brand text-[13px] font-medium text-white transition hover:bg-brand-600 disabled:opacity-40"
-            >
-              Применить
-            </button>
+            <CalendarRange
+              from={from}
+              to={to}
+              onPick={(nextFrom, nextTo) => apply("custom", nextFrom, nextTo)}
+            />
           </div>
         </div>
       ) : null}
