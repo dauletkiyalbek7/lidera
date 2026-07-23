@@ -105,6 +105,29 @@ export async function loadSales(
   return data ?? [];
 }
 
+/**
+ * Очередь пробных уроков к проведению: записанные, но ещё не проведённые.
+ * Фильтруем по назначенному продажнику (его очередь) или берём все по проекту
+ * (для руководителя). Дату записи (created_at) не учитываем — важна дата урока.
+ */
+export async function loadTrialQueue(
+  projectId: string,
+  options: { salespersonId?: string } = {},
+): Promise<Tables<"leads">[]> {
+  const supabase = await createSupabaseServerClient();
+  let query = supabase
+    .from("leads")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("status", "trial_booked")
+    .order("trial_at", { ascending: true, nullsFirst: false });
+
+  if (options.salespersonId) query = query.eq("salesperson_id", options.salespersonId);
+
+  const { data } = await query;
+  return data ?? [];
+}
+
 export async function loadCustomers(projectId: string): Promise<Tables<"customers">[]> {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase

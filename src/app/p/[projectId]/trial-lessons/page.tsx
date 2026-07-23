@@ -7,7 +7,13 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
 import { TRIAL_STATUS_FLOW, TRIAL_STATUS_LABELS, leadSourceLabel } from "@/lib/domain";
-import { formatDate, formatDateRange, formatNumber, formatPercent } from "@/lib/format";
+import {
+  formatDate,
+  formatDateRange,
+  formatDateTime,
+  formatNumber,
+  formatPercent,
+} from "@/lib/format";
 import { loadLeads, loadMembers } from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
@@ -98,11 +104,25 @@ export default async function TrialLessonsPage({
       ),
     },
     {
-      key: "created",
-      header: "Дата записи",
+      key: "seller",
+      header: "Проводит продажник",
+      hideOnMobile: true,
+      render: (lead) => (
+        <span className="text-muted">
+          {lead.salesperson_id
+            ? (memberNames.get(lead.salesperson_id) ?? "Сотрудник")
+            : "не назначен"}
+        </span>
+      ),
+    },
+    {
+      key: "when",
+      header: "Когда пробный",
       align: "right",
       render: (lead) => (
-        <span className="tabular text-muted">{formatDate(lead.created_at)}</span>
+        <span className="tabular text-muted">
+          {lead.trial_at ? formatDateTime(lead.trial_at) : formatDate(lead.created_at)}
+        </span>
       ),
     },
   ];

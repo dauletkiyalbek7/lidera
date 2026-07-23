@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
       await setShift(admin, projectId, account.userId, onShift);
       await send(
         callback.chatId,
-        renderShiftChanged(onShift),
+        renderShiftChanged(onShift, account.role),
         botMenu(account.role, onShift),
       );
     } else {

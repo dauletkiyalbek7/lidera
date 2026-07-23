@@ -19,37 +19,66 @@ type Admin = SupabaseClient<Database>;
 /** Лид считаем закрытым, когда он купил курс: такие в нагрузку не идут. */
 const CLOSED_STATUS = "sale";
 
+/** Пробный ещё в работе у продажника, пока не проведён. */
+const OPEN_TRIAL_STATUSES = ["trial_booked"] as const;
+
 type Workload = { userId: string; open: number };
 
-/** Менеджеры на смене вместе с их текущей нагрузкой, от свободного к занятому. */
-async function onShiftManagers(admin: Admin, projectId: string): Promise<Workload[]> {
+/**
+ * Сотрудники роли на смене вместе с их текущей нагрузкой, от свободного к занятому.
+ * Раздача общая для менеджеров и продажников, различаются лишь колонка назначения
+ * и что считать «в работе»: у менеджера — все незакрытые лиды, у продажника —
+ * только непроведённые пробные.
+ */
+async function onShiftWorkers(
+  admin: Admin,
+  projectId: string,
+  role: "manager" | "salesperson",
+  assignColumn: "assigned_to" | "salesperson_id",
+  openStatuses: readonly string[] | null,
+): Promise<Workload[]> {
   const { data: members } = await admin
     .from("project_members")
     .select("user_id")
     .eq("project_id", projectId)
-    .eq("role", "manager")
+    .eq("role", role)
     .eq("status", "active")
     .eq("on_shift", true);
 
   const ids = (members ?? []).map((row) => row.user_id);
   if (ids.length === 0) return [];
 
-  const { data: openLeads } = await admin
+  let query = admin
     .from("leads")
-    .select("assigned_to")
+    .select(assignColumn)
     .eq("project_id", projectId)
-    .neq("status", CLOSED_STATUS)
-    .in("assigned_to", ids);
+    .in(assignColumn, ids);
+  query = openStatuses
+    ? query.in("status", [...openStatuses])
+    : query.neq("status", CLOSED_STATUS);
+
+  const { data: openLeads } = await query;
 
   const open = new Map<string, number>(ids.map((id) => [id, 0]));
-  for (const lead of openLeads ?? []) {
-    if (lead.assigned_to) open.set(lead.assigned_to, (open.get(lead.assigned_to) ?? 0) + 1);
+  for (const lead of (openLeads ?? []) as Record<string, string | null>[]) {
+    const owner = lead[assignColumn];
+    if (owner) open.set(owner, (open.get(owner) ?? 0) + 1);
   }
 
   // Свободные первыми; при равенстве — по id, чтобы порядок был предсказуем.
   return ids
     .map((userId) => ({ userId, open: open.get(userId) ?? 0 }))
     .sort((a, b) => a.open - b.open || a.userId.localeCompare(b.userId));
+}
+
+/** Менеджеры на смене — по числу незакрытых лидов. */
+function onShiftManagers(admin: Admin, projectId: string): Promise<Workload[]> {
+  return onShiftWorkers(admin, projectId, "manager", "assigned_to", null);
+}
+
+/** Продажники на смене — по числу непроведённых пробных. */
+function onShiftSalespeople(admin: Admin, projectId: string): Promise<Workload[]> {
+  return onShiftWorkers(admin, projectId, "salesperson", "salesperson_id", OPEN_TRIAL_STATUSES);
 }
 
 /**
@@ -135,4 +164,29 @@ export async function distributeUnassigned(
   await notifyLeadsAssigned(admin, projectId, perManager);
 
   return { assigned, managers: managers.length, noManagers: false };
+}
+
+/**
+ * Назначает пробный продажнику на смене с наименьшей очередью — та же раздача по
+ * кругу. Возвращает id продажника или null, если никого нет на смене: тогда
+ * пробный ждёт свободного продажника (его подхватит РОП или сам продажник).
+ * Ставим только если продажник ещё не назначен — чтобы не переписать вручную выбранного.
+ */
+export async function assignTrial(
+  admin: Admin,
+  projectId: string,
+  leadId: string,
+): Promise<string | null> {
+  const salespeople = await onShiftSalespeople(admin, projectId);
+  if (salespeople.length === 0) return null;
+
+  const salespersonId = salespeople[0].userId;
+  const { error } = await admin
+    .from("leads")
+    .update({ salesperson_id: salespersonId })
+    .eq("id", leadId)
+    .eq("project_id", projectId)
+    .is("salesperson_id", null);
+
+  return error ? null : salespersonId;
 }

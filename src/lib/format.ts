@@ -6,6 +6,14 @@
 export const DEFAULT_CURRENCY = "KZT";
 const LOCALE = "ru-RU";
 
+/**
+ * Часовой пояс проекта. Казахстан с 2024 года — единый UTC+5 без перехода на
+ * летнее время, поэтому смещение фиксированное. Держим отдельной константой:
+ * когда часовой пояс станет настройкой проекта, менять только здесь.
+ */
+const PROJECT_TZ = "Asia/Almaty";
+const PROJECT_TZ_OFFSET = "+05:00";
+
 export function formatMoney(
   amount: number,
   currency: string = DEFAULT_CURRENCY,
@@ -79,6 +87,28 @@ export function formatDate(date: string, options: Intl.DateTimeFormatOptions = {
 
 export function formatDateShort(date: string): string {
   return formatDate(date, { day: "numeric", month: "short", year: undefined });
+}
+
+/** ISO-момент → «24 июля, 15:30» в часовом поясе проекта. */
+export function formatDateTime(iso: string): string {
+  return new Intl.DateTimeFormat(LOCALE, {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: PROJECT_TZ,
+  }).format(new Date(iso));
+}
+
+/**
+ * Значение <input type="datetime-local"> (YYYY-MM-DDTHH:mm по времени проекта)
+ * → ISO-момент. Пользователь набирает местное время, поэтому трактуем его в поясе
+ * проекта, а не в UTC сервера. Возвращает null, если строка не разобралась.
+ */
+export function parseLocalDateTime(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}:00${PROJECT_TZ_OFFSET}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 export function formatDateRange(from: string | null, to: string | null): string {

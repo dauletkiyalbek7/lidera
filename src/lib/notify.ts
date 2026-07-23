@@ -144,6 +144,30 @@ export async function notifyLeadsAssigned(
   }
 }
 
+export type TrialAssignedNotice = {
+  fullName: string;
+  phone: string | null;
+  /** Продажник, которому назначен пробный; null — если на смене никого нет. */
+  salespersonId: string | null;
+  /** Назначенные дата и время в поясе проекта, уже готовой строкой. */
+  when: string | null;
+};
+
+/** Менеджер записал на пробный — уведомляем назначенного продажника и руководителей. */
+export async function notifyTrialAssigned(
+  admin: Admin,
+  projectId: string,
+  trial: TrialAssignedNotice,
+): Promise<void> {
+  const parts = [`🎯 Вам назначен пробный урок: ${trial.fullName}`];
+  if (trial.phone) parts.push(`Телефон: ${trial.phone}`);
+  if (trial.when) parts.push(`Когда: ${trial.when}`);
+  if (!trial.salespersonId) {
+    parts.push("Свободного продажника на смене нет — пробный ждёт в очереди.");
+  }
+  await broadcast(admin, projectId, trial.salespersonId, parts.join("\n"));
+}
+
 export type LeadWonNotice = {
   fullName: string;
   assignedTo: string | null;

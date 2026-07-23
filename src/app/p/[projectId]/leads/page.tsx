@@ -8,11 +8,18 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
 import { LEAD_STATUS_FLOW, leadSourceLabel } from "@/lib/domain";
-import { formatDate, formatDateRange, formatNumber, formatPercent } from "@/lib/format";
+import {
+  formatDate,
+  formatDateRange,
+  formatDateTime,
+  formatNumber,
+  formatPercent,
+} from "@/lib/format";
 import { loadLeads, loadMembers } from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
 import { LeadOps } from "./lead-ops";
+import { BookTrialCell } from "./book-trial";
 
 /** Лиды: сколько пришло, что с ними стало, кто ответственный (ТЗ, Блок 2). */
 export default async function LeadsPage({
@@ -26,7 +33,7 @@ export default async function LeadsPage({
   const range = readDateRange(await searchParams);
 
   // Контекст проекта и данные раздела независимы — уходят одной параллельной волной.
-  const [{ niche, canManage, role, user }, leads, members] = await Promise.all([
+  const [{ project, niche, canManage, role, user }, leads, members] = await Promise.all([
     requireSectionAccess(projectId, "leads"),
     loadLeads(projectId, range),
     loadMembers(projectId),
@@ -43,6 +50,12 @@ export default async function LeadsPage({
   ).length;
   const showOps = niche === "education" && (mayDistribute || isManager);
   const flow = LEAD_STATUS_FLOW[niche];
+
+  // Записать на пробный может руководитель (любой лид) или менеджер (свой лид).
+  const trialPrice = Number(project.trial_price ?? 990);
+  const bookable = (lead: Tables<"leads">) =>
+    (lead.status === "new" || lead.status === "qualified") &&
+    (mayDistribute || (isManager && lead.assigned_to === user.id));
 
   const countFrom = (index: number) =>
     leads.filter((lead) => flow.indexOf(lead.status) >= index).length;
@@ -137,6 +150,41 @@ export default async function LeadsPage({
         </span>
       ),
     },
+    ...(showOps
+      ? [
+          {
+            key: "trial",
+            header: "Пробный урок",
+            hideOnMobile: true,
+            render: (lead: Tables<"leads">) => {
+              if (bookable(lead)) {
+                return (
+                  <BookTrialCell
+                    projectId={projectId}
+                    leadId={lead.id}
+                    trialPrice={trialPrice}
+                    currency={project.currency}
+                  />
+                );
+              }
+              if (lead.trial_at) {
+                const seller = lead.salesperson_id
+                  ? memberNames.get(lead.salesperson_id)
+                  : null;
+                return (
+                  <div className="flex flex-col">
+                    <span className="tabular text-muted">{formatDateTime(lead.trial_at)}</span>
+                    <span className="text-[11px] text-faint">
+                      {seller ? `Продажник: ${seller}` : "Ждёт продажника"}
+                    </span>
+                  </div>
+                );
+              }
+              return <span className="text-faint">—</span>;
+            },
+          },
+        ]
+      : []),
     {
       key: "created",
       header: "Пришёл",

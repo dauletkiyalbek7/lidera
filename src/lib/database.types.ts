@@ -951,8 +951,11 @@ export type Database = {
           id: string
           phone: string | null
           project_id: string
+          salesperson_id: string | null
           source: string | null
           status: string
+          trial_at: string | null
+          trial_paid_at: string | null
           value: number | null
         }
         Insert: {
@@ -963,8 +966,11 @@ export type Database = {
           id?: string
           phone?: string | null
           project_id: string
+          salesperson_id?: string | null
           source?: string | null
           status?: string
+          trial_at?: string | null
+          trial_paid_at?: string | null
           value?: number | null
         }
         Update: {
@@ -975,8 +981,11 @@ export type Database = {
           id?: string
           phone?: string | null
           project_id?: string
+          salesperson_id?: string | null
           source?: string | null
           status?: string
+          trial_at?: string | null
+          trial_paid_at?: string | null
           value?: number | null
         }
         Relationships: [
@@ -999,6 +1008,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_salesperson_id_fkey"
+            columns: ["salesperson_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

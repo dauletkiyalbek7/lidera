@@ -59,5 +59,6 @@ export async function toggleShift(formData: FormData): Promise<void> {
     .eq("user_id", user.id);
 
   revalidatePath(`/p/${projectId}/manager-office`);
+  revalidatePath(`/p/${projectId}/salesperson-office`);
   revalidatePath(`/p/${projectId}/leads`);
 }
