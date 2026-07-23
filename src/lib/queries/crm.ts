@@ -105,10 +105,13 @@ export async function loadSales(
   return data ?? [];
 }
 
+/** Активные пробные продажника: записанные к проведению и проведённые, ждущие продажи. */
+const ACTIVE_TRIAL_STATUSES = ["trial_booked", "trial_done"] as const;
+
 /**
- * Очередь пробных уроков к проведению: записанные, но ещё не проведённые.
- * Фильтруем по назначенному продажнику (его очередь) или берём все по проекту
- * (для руководителя). Дату записи (created_at) не учитываем — важна дата урока.
+ * Очередь пробных уроков продажника: записанные (провести) и проведённые (закрыть
+ * продажу). Фильтруем по назначенному продажнику или берём все по проекту (для
+ * руководителя). Дату записи (created_at) не учитываем — важна дата урока.
  */
 export async function loadTrialQueue(
   projectId: string,
@@ -119,7 +122,7 @@ export async function loadTrialQueue(
     .from("leads")
     .select("*")
     .eq("project_id", projectId)
-    .eq("status", "trial_booked")
+    .in("status", [...ACTIVE_TRIAL_STATUSES])
     .order("trial_at", { ascending: true, nullsFirst: false });
 
   if (options.salespersonId) query = query.eq("salesperson_id", options.salespersonId);

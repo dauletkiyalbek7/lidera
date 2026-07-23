@@ -1415,6 +1415,9 @@ export type Database = {
           lead_id: string | null
           product: string | null
           project_id: string
+          receipt_at: string | null
+          receipt_file_id: string | null
+          receipt_status: string
           seller_id: string | null
         }
         Insert: {
@@ -1426,6 +1429,9 @@ export type Database = {
           lead_id?: string | null
           product?: string | null
           project_id: string
+          receipt_at?: string | null
+          receipt_file_id?: string | null
+          receipt_status?: string
           seller_id?: string | null
         }
         Update: {
@@ -1437,6 +1443,9 @@ export type Database = {
           lead_id?: string | null
           product?: string | null
           project_id?: string
+          receipt_at?: string | null
+          receipt_file_id?: string | null
+          receipt_status?: string
           seller_id?: string | null
         }
         Relationships: [
@@ -1686,6 +1695,10 @@ export type Database = {
       is_owner: { Args: never; Returns: boolean }
       is_project_member: { Args: { pid: string }; Returns: boolean }
       owns_project: { Args: { pid: string }; Returns: boolean }
+      record_daily_sale: {
+        Args: { p_amount: number; p_date: string; p_project: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

@@ -6,6 +6,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
 import {
+  currencySymbol,
   formatDateRange,
   formatDateTime,
   formatMoney,
@@ -15,7 +16,12 @@ import {
 import { loadMembers, loadSales, loadTrialQueue } from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
-import { ShiftToggle, TrialDoneButton } from "./office-ops";
+import { CourseSoldButton, ShiftToggle, TrialDoneButton } from "./office-ops";
+
+const TRIAL_STAGE = {
+  trial_booked: { label: "Записан", tone: "warning" as const },
+  trial_done: { label: "Проведён — закрыть продажу", tone: "brand" as const },
+};
 
 type SalespersonRow = {
   id: string;
@@ -96,6 +102,14 @@ export default async function SalespersonOfficePage({
       ),
     },
     {
+      key: "stage",
+      header: "Этап",
+      render: (trial) => {
+        const stage = TRIAL_STAGE[trial.status as keyof typeof TRIAL_STAGE];
+        return <Badge tone={stage?.tone ?? "neutral"}>{stage?.label ?? trial.status}</Badge>;
+      },
+    },
+    {
       key: "manager",
       header: "Записал менеджер",
       hideOnMobile: true,
@@ -125,10 +139,21 @@ export default async function SalespersonOfficePage({
       key: "action",
       header: "",
       align: "right",
-      render: (trial) =>
-        canMarkDone(trial) ? (
-          <TrialDoneButton projectId={projectId} leadId={trial.id} />
-        ) : null,
+      render: (trial) => {
+        if (!canMarkDone(trial)) return null;
+        if (trial.status === "trial_booked") {
+          return <TrialDoneButton projectId={projectId} leadId={trial.id} />;
+        }
+        return (
+          <div className="flex justify-end">
+            <CourseSoldButton
+              projectId={projectId}
+              leadId={trial.id}
+              currencySymbol={currencySymbol(currency)}
+            />
+          </div>
+        );
+      },
     },
   ];
 
@@ -200,9 +225,7 @@ export default async function SalespersonOfficePage({
           <h2 className="text-[15px] font-semibold text-ink">
             {ownView ? "Мои пробные уроки" : "Очередь пробных уроков"}
           </h2>
-          <span className="text-[12px] text-faint">
-            {formatNumber(trials.length)} к проведению
-          </span>
+          <span className="text-[12px] text-faint">{formatNumber(trials.length)} в работе</span>
         </div>
         <DataTable
           columns={trialColumns}
@@ -210,8 +233,8 @@ export default async function SalespersonOfficePage({
           rowKey={(trial) => trial.id}
           empty={{
             icon: "trial",
-            title: "Пробных к проведению нет",
-            text: "Сюда попадают записанные пробные уроки. Менеджер записывает и оплачивает пробный — он падает свободному продажнику по кругу с датой и временем.",
+            title: "Активных пробных нет",
+            text: "Менеджер записывает и оплачивает пробный — он падает свободному продажнику по кругу. Проведите урок, затем отметьте «Курс продан» с суммой и пришлите чек боту.",
           }}
         />
       </section>

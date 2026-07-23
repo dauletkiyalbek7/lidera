@@ -71,12 +71,53 @@ export async function setShift(
     .eq("user_id", userId);
 }
 
+export type ConfirmedReceipt = { product: string | null; amount: number };
+
+/**
+ * Продажник прислал боту чек: привязываем его к своей последней продаже, ждущей
+ * подтверждения, и помечаем чек полученным. Возвращает продажу или null, если
+ * ждущей чек продажи нет (тогда бот так и ответит). Автопроверку суммы и CAPI —
+ * позже; пока фиксируем сам факт чека.
+ */
+export async function confirmLatestReceipt(
+  admin: Admin,
+  projectId: string,
+  userId: string,
+  fileId: string,
+): Promise<ConfirmedReceipt | null> {
+  const { data: sale } = await admin
+    .from("sales")
+    .select("id, product, amount")
+    .eq("project_id", projectId)
+    .eq("seller_id", userId)
+    .eq("receipt_status", "awaiting")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!sale) return null;
+
+  await admin
+    .from("sales")
+    .update({
+      receipt_status: "confirmed",
+      receipt_file_id: fileId,
+      receipt_at: new Date().toISOString(),
+    })
+    .eq("id", sale.id);
+
+  return { product: sale.product, amount: Number(sale.amount) };
+}
+
 export type PeriodCounters = {
   leads: number;
   qualified: number;
   trials: number;
   sales: number;
   revenue: number;
+  /** Для продажника: пробные, назначенные ему и им проведённые за период. */
+  trialsAssigned: number;
+  trialsConducted: number;
 };
 
 export type BotMetrics = {
@@ -87,7 +128,15 @@ export type BotMetrics = {
   month: PeriodCounters;
 };
 
-const EMPTY: PeriodCounters = { leads: 0, qualified: 0, trials: 0, sales: 0, revenue: 0 };
+const EMPTY: PeriodCounters = {
+  leads: 0,
+  qualified: 0,
+  trials: 0,
+  sales: 0,
+  revenue: 0,
+  trialsAssigned: 0,
+  trialsConducted: 0,
+};
 
 const QUALIFIED_PLUS = ["qualified", "trial_booked", "trial_done", "sale"];
 const TRIAL_PLUS = ["trial_booked", "trial_done", "sale"];
@@ -139,19 +188,48 @@ async function countSales(
   };
 }
 
+/** Пробные продажника: назначенные ему и им проведённые за период (по дате оплаты пробного). */
+async function countSalespersonTrials(
+  admin: Admin,
+  projectId: string,
+  userId: string,
+  since: string | null,
+  until: string | null,
+): Promise<{ trialsAssigned: number; trialsConducted: number }> {
+  let query = admin
+    .from("leads")
+    .select("status")
+    .eq("project_id", projectId)
+    .eq("salesperson_id", userId)
+    .not("trial_paid_at", "is", null);
+  if (since) query = query.gte("trial_paid_at", since);
+  if (until) query = query.lt("trial_paid_at", until);
+
+  const { data } = await query;
+  const rows = data ?? [];
+  return {
+    trialsAssigned: rows.length,
+    trialsConducted: rows.filter((r) => r.status === "trial_done" || r.status === "sale").length,
+  };
+}
+
 async function countPeriod(
   admin: Admin,
   projectId: string,
   userId: string | null,
+  role: ProjectRole,
   from: string,
   to: string,
 ): Promise<PeriodCounters> {
   const { since, until } = createdAtBounds({ from, to });
-  const [leadStats, saleStats] = await Promise.all([
+  const [leadStats, saleStats, trialStats] = await Promise.all([
     countLeads(admin, projectId, userId, since, until),
     countSales(admin, projectId, userId, since, until),
+    userId && role === "salesperson"
+      ? countSalespersonTrials(admin, projectId, userId, since, until)
+      : Promise.resolve({ trialsAssigned: 0, trialsConducted: 0 }),
   ]);
-  return { ...leadStats, ...saleStats };
+  return { ...leadStats, ...saleStats, ...trialStats };
 }
 
 /**
@@ -171,8 +249,8 @@ export async function loadBotMetrics(
   const monthStart = startOfMonth(day);
 
   const [todayCounters, monthCounters] = await Promise.all([
-    countPeriod(admin, projectId, scope, day, day),
-    countPeriod(admin, projectId, scope, monthStart, day),
+    countPeriod(admin, projectId, scope, role, day, day),
+    countPeriod(admin, projectId, scope, role, monthStart, day),
   ]);
 
   return {

@@ -60,6 +60,8 @@ export type TelegramUpdate = {
   username: string | null;
   fullName: string | null;
   text: string | null;
+  /** file_id вложения (фото или документа) — им приходит чек о покупке. */
+  attachmentFileId: string | null;
 };
 
 export type TelegramParseResult =
@@ -74,6 +76,21 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function readText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * file_id вложения: у фото это последний (самый крупный) размер из массива photo,
+ * у файла — document.file_id. Именно так клиент присылает чек о покупке.
+ */
+function readAttachmentFileId(message: Record<string, unknown>): string | null {
+  const photo = Array.isArray(message.photo) ? message.photo : null;
+  if (photo && photo.length > 0) {
+    const largest = asRecord(photo[photo.length - 1]);
+    const id = largest ? readText(largest.file_id) : null;
+    if (id) return id;
+  }
+  const document = asRecord(message.document);
+  return document ? readText(document.file_id) : null;
 }
 
 /**
@@ -104,7 +121,8 @@ export function parseTelegramUpdate(body: unknown): TelegramParseResult {
       chatId,
       username: from ? readText(from.username)?.slice(0, MAX_NAME) ?? null : null,
       fullName: fullName ? fullName.slice(0, MAX_NAME) : null,
-      text: readText(message.text)?.slice(0, MAX_TEXT) ?? null,
+      text: (readText(message.text) ?? readText(message.caption))?.slice(0, MAX_TEXT) ?? null,
+      attachmentFileId: readAttachmentFileId(message),
     },
   };
 }

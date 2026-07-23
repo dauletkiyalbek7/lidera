@@ -94,7 +94,9 @@ export function renderMetrics(metrics: BotMetrics, currency: string): string {
     );
   } else if (role === "salesperson") {
     lines.push(
-      line("Продажи", today.sales, month.sales),
+      line("Пробные на мне", today.trialsAssigned, month.trialsAssigned),
+      line("Пробные проведены", today.trialsConducted, month.trialsConducted),
+      line("Продажи курса", today.sales, month.sales),
       moneyLine("Выручка", today.revenue, month.revenue, currency),
     );
     if (month.sales > 0) {
@@ -111,6 +113,20 @@ export function renderMetrics(metrics: BotMetrics, currency: string): string {
 
   const scope = metrics.personal ? "Ваши показатели" : "Показатели проекта";
   return `${scope}\n\n${lines.join("\n")}`;
+}
+
+/** Чек привязан к продаже и подтверждён. */
+export function renderReceiptConfirmed(product: string | null, amount: number, currency: string): string {
+  const what = product ? `«${product}»` : "курс";
+  return `✅ Чек принят. Продажа ${what} на ${formatMoney(amount, currency)} подтверждена.`;
+}
+
+/** Прислали чек, но продажи, ждущей подтверждения, нет. */
+export function renderNoAwaitingSale(): string {
+  return (
+    "Не нашёл продажи, ожидающей чек. Сначала отметьте «Курс продан» в кабинете " +
+    "продажника, затем пришлите сюда чек."
+  );
 }
 
 export function renderReportStub(): string {

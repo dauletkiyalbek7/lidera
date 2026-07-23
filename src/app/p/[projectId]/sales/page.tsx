@@ -2,6 +2,7 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/layout/page-header";
 import { sectionBlockTitle } from "@/lib/navigation";
 import { MetricCard } from "@/components/metrics/metric-card";
+import { Badge } from "@/components/ui/badge";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
@@ -123,6 +124,17 @@ export default async function SalesPage({
       render: (sale) => (
         <span className="tabular text-muted">{formatDate(sale.created_at)}</span>
       ),
+    },
+    {
+      key: "receipt",
+      header: "Чек",
+      hideOnMobile: true,
+      render: (sale) =>
+        sale.receipt_status === "confirmed" ? (
+          <Badge tone="positive">Подтверждён</Badge>
+        ) : (
+          <Badge tone="warning">Ожидается</Badge>
+        ),
     },
     {
       key: "amount",

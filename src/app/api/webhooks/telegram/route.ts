@@ -14,12 +14,19 @@ import {
   BOT_ACTIONS,
   botMenu,
   renderMetrics,
+  renderNoAwaitingSale,
   renderNotLinked,
+  renderReceiptConfirmed,
   renderReportStub,
   renderShiftChanged,
   renderWelcome,
 } from "@/lib/telegram-bot";
-import { findLinkedAccount, loadBotMetrics, setShift } from "@/lib/queries/telegram-bot";
+import {
+  confirmLatestReceipt,
+  findLinkedAccount,
+  loadBotMetrics,
+  setShift,
+} from "@/lib/queries/telegram-bot";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
@@ -202,6 +209,21 @@ export async function POST(request: NextRequest) {
   if (!account) {
     await send(update.chatId, renderNotLinked());
     return json(200, { ok: true, linked: false });
+  }
+
+  /* Вложение — это чек о покупке: привязываем к последней продаже продажника. */
+  if (update.attachmentFileId) {
+    const [confirmed, currency] = await Promise.all([
+      confirmLatestReceipt(admin, projectId, account.userId, update.attachmentFileId),
+      projectCurrency(admin, projectId),
+    ]);
+    await send(
+      update.chatId,
+      confirmed
+        ? renderReceiptConfirmed(confirmed.product, confirmed.amount, currency)
+        : renderNoAwaitingSale(),
+    );
+    return json(200, { ok: true, receipt: Boolean(confirmed) });
   }
 
   const text = (update.text ?? "").toLowerCase();
