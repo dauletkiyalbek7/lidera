@@ -21,6 +21,7 @@ export type LinkedAccount = {
   userId: string;
   fullName: string;
   role: ProjectRole;
+  onShift: boolean;
 };
 
 export async function findLinkedAccount(
@@ -40,7 +41,7 @@ export async function findLinkedAccount(
 
   const { data: member } = await admin
     .from("project_members")
-    .select("role")
+    .select("role, on_shift")
     .eq("project_id", projectId)
     .eq("user_id", data.user_id)
     .eq("status", "active")
@@ -52,7 +53,22 @@ export async function findLinkedAccount(
     userId: data.user_id,
     fullName: data.profiles.full_name,
     role: member.role as ProjectRole,
+    onShift: member.on_shift ?? false,
   };
+}
+
+/** Переключает смену сотрудника из бота и возвращает новое состояние. */
+export async function setShift(
+  admin: Admin,
+  projectId: string,
+  userId: string,
+  onShift: boolean,
+): Promise<void> {
+  await admin
+    .from("project_members")
+    .update({ on_shift: onShift })
+    .eq("project_id", projectId)
+    .eq("user_id", userId);
 }
 
 export type PeriodCounters = {

@@ -8,6 +8,7 @@ import {
   parseChatEvent,
 } from "@/lib/chat";
 import type { ChatReferral } from "@/lib/chat";
+import { assignIncomingLead } from "@/lib/leads/assign";
 import { notifyNewLead } from "@/lib/notify";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
@@ -199,11 +200,13 @@ export async function POST(request: NextRequest) {
         details: { channel: event.channel, source, creative_id: conversationCreativeId },
       });
 
+      const assignedTo = await assignIncomingLead(admin, projectId, leadId);
+
       await notifyNewLead(admin, projectId, {
         fullName: event.contactName ?? existing?.contact_name ?? (phone as string),
         phone: phone ?? knownPhone,
         source,
-        assignedTo: null,
+        assignedTo,
         adHeadline: event.referral?.headline ?? null,
       });
     }

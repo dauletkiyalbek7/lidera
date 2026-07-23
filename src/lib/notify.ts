@@ -104,6 +104,46 @@ export async function notifyNewLead(
   await broadcast(admin, projectId, lead.assignedTo, parts.join("\n"));
 }
 
+/**
+ * Итог утренней раздачи: каждому менеджеру — одно сообщение со счётчиком,
+ * а не поток отдельных уведомлений на каждый лид.
+ */
+export async function notifyLeadsAssigned(
+  admin: Admin,
+  projectId: string,
+  perManager: Map<string, number>,
+): Promise<void> {
+  if (perManager.size === 0) return;
+  try {
+    const credentials = await readIntegrationCredentialsAsPlatform(projectId, "telegram");
+    if (!credentials) return;
+
+    const { data: accounts } = await admin
+      .from("telegram_accounts")
+      .select("user_id, chat_id")
+      .eq("project_id", projectId)
+      .eq("status", "linked");
+
+    const chatByUser = new Map(
+      (accounts ?? []).filter((a) => a.chat_id).map((a) => [a.user_id, a.chat_id as string]),
+    );
+
+    await Promise.all(
+      [...perManager.entries()].map(([userId, count]) => {
+        const chatId = chatByUser.get(userId);
+        if (!chatId) return Promise.resolve(false);
+        return sendTelegramMessage(
+          credentials.token,
+          chatId,
+          `📥 Вам назначено новых лидов: ${count}. Откройте «Мои показатели» в меню.`,
+        );
+      }),
+    );
+  } catch {
+    // Молчим: раздача важнее уведомления о ней.
+  }
+}
+
 export type LeadWonNotice = {
   fullName: string;
   assignedTo: string | null;

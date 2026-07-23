@@ -16,9 +16,10 @@ import {
   renderMetrics,
   renderNotLinked,
   renderReportStub,
+  renderShiftChanged,
   renderWelcome,
 } from "@/lib/telegram-bot";
-import { findLinkedAccount, loadBotMetrics } from "@/lib/queries/telegram-bot";
+import { findLinkedAccount, loadBotMetrics, setShift } from "@/lib/queries/telegram-bot";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
@@ -118,8 +119,23 @@ export async function POST(request: NextRequest) {
       await showMetrics(callback.chatId, account);
     } else if (callback.data === BOT_ACTIONS.report) {
       await send(callback.chatId, renderReportStub());
+    } else if (
+      callback.data === BOT_ACTIONS.shiftOn ||
+      callback.data === BOT_ACTIONS.shiftOff
+    ) {
+      const onShift = callback.data === BOT_ACTIONS.shiftOn;
+      await setShift(admin, projectId, account.userId, onShift);
+      await send(
+        callback.chatId,
+        renderShiftChanged(onShift),
+        botMenu(account.role, onShift),
+      );
     } else {
-      await send(callback.chatId, renderWelcome(account.fullName, account.role, false), botMenu());
+      await send(
+        callback.chatId,
+        renderWelcome(account.fullName, account.role, account.onShift, false),
+        botMenu(account.role, account.onShift),
+      );
     }
     return json(200, { ok: true, action: callback.data });
   }
@@ -172,7 +188,11 @@ export async function POST(request: NextRequest) {
 
     const linked = await findLinkedAccount(admin, projectId, update.chatId);
     if (linked) {
-      await send(update.chatId, renderWelcome(linked.fullName, linked.role, true), botMenu());
+      await send(
+        update.chatId,
+        renderWelcome(linked.fullName, linked.role, linked.onShift, true),
+        botMenu(linked.role, linked.onShift),
+      );
     }
     return json(200, { ok: true, linked: true, user_id: account.user_id });
   }
@@ -190,7 +210,11 @@ export async function POST(request: NextRequest) {
   } else if (text.startsWith("/report") || text.includes("отчёт") || text.includes("отчет")) {
     await send(update.chatId, renderReportStub());
   } else {
-    await send(update.chatId, renderWelcome(account.fullName, account.role, false), botMenu());
+    await send(
+      update.chatId,
+      renderWelcome(account.fullName, account.role, account.onShift, false),
+      botMenu(account.role, account.onShift),
+    );
   }
   return json(200, { ok: true, linked: true });
 }

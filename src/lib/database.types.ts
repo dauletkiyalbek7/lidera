@@ -1117,6 +1117,7 @@ export type Database = {
           fired_at: string | null
           hired_at: string
           id: string
+          on_shift: boolean
           project_id: string
           role: string
           status: string
@@ -1126,6 +1127,7 @@ export type Database = {
           fired_at?: string | null
           hired_at?: string
           id?: string
+          on_shift?: boolean
           project_id: string
           role: string
           status?: string
@@ -1135,6 +1137,7 @@ export type Database = {
           fired_at?: string | null
           hired_at?: string
           id?: string
+          on_shift?: boolean
           project_id?: string
           role?: string
           status?: string
@@ -1202,6 +1205,7 @@ export type Database = {
           owner_id: string
           plan: string
           status: string
+          trial_price: number
         }
         Insert: {
           accent_color?: string | null
@@ -1218,6 +1222,7 @@ export type Database = {
           owner_id: string
           plan?: string
           status?: string
+          trial_price?: number
         }
         Update: {
           accent_color?: string | null
@@ -1234,6 +1239,7 @@ export type Database = {
           owner_id?: string
           plan?: string
           status?: string
+          trial_price?: number
         }
         Relationships: [
           {

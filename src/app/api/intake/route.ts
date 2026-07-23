@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashIntakeToken, parseIntakePayload } from "@/lib/intake";
+import { assignIncomingLead } from "@/lib/leads/assign";
 import { notifyNewLead } from "@/lib/notify";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
@@ -140,15 +141,18 @@ export async function POST(request: NextRequest) {
     details: { source: payload.source, creative_id: creativeId },
   });
 
+  // Раздаём сразу, если есть кто на смене; иначе лид ждёт кнопки «Авто-раздача».
+  const assignedTo = await assignIncomingLead(admin, projectId, lead.id);
+
   await notifyNewLead(admin, projectId, {
     fullName: payload.fullName,
     phone: payload.phone,
     source: payload.source,
-    assignedTo: null,
+    assignedTo,
     adHeadline: null,
   });
 
-  return json(201, { ok: true, lead_id: lead.id, creative_id: creativeId });
+  return json(201, { ok: true, lead_id: lead.id, creative_id: creativeId, assigned_to: assignedTo });
 }
 
 /** GET оставляем для проверки «жив ли адрес» — заявки он не принимает. */

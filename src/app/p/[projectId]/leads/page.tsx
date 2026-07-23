@@ -12,6 +12,8 @@ import { formatDate, formatDateRange, formatNumber, formatPercent } from "@/lib/
 import { loadLeads, loadMembers } from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
+import { LeadOps } from "./lead-ops";
+
 /** Лиды: сколько пришло, что с ними стало, кто ответственный (ТЗ, Блок 2). */
 export default async function LeadsPage({
   params,
@@ -24,13 +26,22 @@ export default async function LeadsPage({
   const range = readDateRange(await searchParams);
 
   // Контекст проекта и данные раздела независимы — уходят одной параллельной волной.
-  const [{ niche, canManage }, leads, members] = await Promise.all([
+  const [{ niche, canManage, role, user }, leads, members] = await Promise.all([
     requireSectionAccess(projectId, "leads"),
     loadLeads(projectId, range),
     loadMembers(projectId),
   ]);
 
   const memberNames = new Map(members.map((member) => [member.userId, member.fullName]));
+
+  // Раздача касается только образования: там есть менеджеры и очередь лидов.
+  const mayDistribute = canManage || role === "director" || role === "rop";
+  const me = members.find((member) => member.userId === user.id);
+  const isManager = me?.role === "manager";
+  const unassignedNew = leads.filter(
+    (lead) => !lead.assigned_to && lead.status === "new",
+  ).length;
+  const showOps = niche === "education" && (mayDistribute || isManager);
   const flow = LEAD_STATUS_FLOW[niche];
 
   const countFrom = (index: number) =>
@@ -143,12 +154,23 @@ export default async function LeadsPage({
         title="Лиды"
         subtitle={`Входящие заявки · ${formatDateRange(range.from, range.to)}`}
         actions={
-          <DateRangePicker
-            preset={range.preset}
-            from={range.from}
-            to={range.to}
-            label={range.label}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {showOps ? (
+              <LeadOps
+                projectId={projectId}
+                mayDistribute={mayDistribute}
+                unassigned={unassignedNew}
+                isManager={Boolean(isManager)}
+                onShift={me?.onShift ?? false}
+              />
+            ) : null}
+            <DateRangePicker
+              preset={range.preset}
+              from={range.from}
+              to={range.to}
+              label={range.label}
+            />
+          </div>
         }
       />
 

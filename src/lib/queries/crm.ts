@@ -18,6 +18,8 @@ export type Member = {
   status: string;
   hiredAt: string;
   firedAt: string | null;
+  /** На смене ли сейчас — по этому признаку идёт раздача лидов. */
+  onShift: boolean;
 };
 
 /** Строка состава вместе с именем из profiles — одним запросом через связь по внешнему ключу. */
@@ -28,6 +30,7 @@ type MemberWithProfile = {
   status: string;
   hired_at: string;
   fired_at: string | null;
+  on_shift: boolean;
   profiles: { full_name: string } | null;
 };
 
@@ -40,7 +43,7 @@ export const loadMembers = cache(async (projectId: string): Promise<Member[]> =>
 
   const { data } = await supabase
     .from("project_members")
-    .select("id, user_id, role, status, hired_at, fired_at, profiles(full_name)")
+    .select("id, user_id, role, status, hired_at, fired_at, on_shift, profiles(full_name)")
     .eq("project_id", projectId)
     .order("hired_at", { ascending: true })
     .overrideTypes<MemberWithProfile[]>();
@@ -53,6 +56,7 @@ export const loadMembers = cache(async (projectId: string): Promise<Member[]> =>
     status: member.status,
     hiredAt: member.hired_at,
     firedAt: member.fired_at,
+    onShift: member.on_shift ?? false,
   }));
 });
 

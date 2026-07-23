@@ -14,26 +14,53 @@ import type { BotMetrics } from "@/lib/queries/telegram-bot";
 export const BOT_ACTIONS = {
   metrics: "metrics",
   report: "report",
+  shiftOn: "shift_on",
+  shiftOff: "shift_off",
 } as const;
 
 export type InlineKeyboard = {
   inline_keyboard: { text: string; callback_data: string }[][];
 };
 
-export function botMenu(): InlineKeyboard {
-  return {
-    inline_keyboard: [
-      [{ text: "📊 Мои показатели", callback_data: BOT_ACTIONS.metrics }],
-      [{ text: "📝 Отчёт за день", callback_data: BOT_ACTIONS.report }],
-    ],
-  };
+/** Смену показываем только тем, кому раздают лиды, — менеджерам. */
+function takesLeads(role: ProjectRole): boolean {
+  return role === "manager";
 }
 
-export function renderWelcome(fullName: string, role: ProjectRole, justLinked: boolean): string {
+export function botMenu(role: ProjectRole, onShift: boolean): InlineKeyboard {
+  const rows: { text: string; callback_data: string }[][] = [
+    [{ text: "📊 Мои показатели", callback_data: BOT_ACTIONS.metrics }],
+    [{ text: "📝 Отчёт за день", callback_data: BOT_ACTIONS.report }],
+  ];
+  if (takesLeads(role)) {
+    rows.unshift([
+      onShift
+        ? { text: "🔴 Уйти со смены", callback_data: BOT_ACTIONS.shiftOff }
+        : { text: "🟢 Встать на смену", callback_data: BOT_ACTIONS.shiftOn },
+    ]);
+  }
+  return { inline_keyboard: rows };
+}
+
+export function renderWelcome(
+  fullName: string,
+  role: ProjectRole,
+  onShift: boolean,
+  justLinked: boolean,
+): string {
   const head = justLinked
     ? `Готово, ${fullName}! Чат привязан к вашей учётке в Lidera.`
     : `С возвращением, ${fullName}.`;
-  return `${head}\nРоль: ${ROLE_LABELS[role]}.\n\nВыберите, что показать:`;
+  const shift = takesLeads(role)
+    ? `\nСмена: ${onShift ? "🟢 на смене — лиды приходят вам" : "🔴 не на смене — лиды не приходят"}`
+    : "";
+  return `${head}\nРоль: ${ROLE_LABELS[role]}.${shift}\n\nВыберите, что показать:`;
+}
+
+export function renderShiftChanged(onShift: boolean): string {
+  return onShift
+    ? "🟢 Вы на смене. Новые лиды теперь приходят вам по кругу."
+    : "🔴 Вы ушли со смены. Новые лиды вам приходить не будут.";
 }
 
 function line(label: string, today: number, month: number): string {
