@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 
 import { requireProjectContext } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { LEAD_STATUS_FLOW } from "@/lib/domain";
+import { notifyLeadWon } from "@/lib/notify";
+import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
  * Смена этапа лида. Пока доступна владельцу проекта:
@@ -20,13 +23,15 @@ export async function updateLeadStatus(formData: FormData): Promise<void> {
   if (!LEAD_STATUS_FLOW[niche].includes(status)) return;
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("leads")
     .update({ status })
     .eq("id", leadId)
-    .eq("project_id", projectId);
+    .eq("project_id", projectId)
+    .select("full_name, assigned_to")
+    .single();
 
-  if (error) return;
+  if (error || !updated) return;
 
   await supabase.from("activity_log").insert({
     project_id: projectId,
@@ -34,6 +39,14 @@ export async function updateLeadStatus(formData: FormData): Promise<void> {
     action: "lead.status_changed",
     details: { lead_id: leadId, status },
   });
+
+  // Лид дошёл до покупки — событие, ради которого и держат бота.
+  if (status === "sale" && hasServiceRoleKey()) {
+    await notifyLeadWon(createSupabaseAdminClient(), projectId, {
+      fullName: updated.full_name,
+      assignedTo: updated.assigned_to,
+    });
+  }
 
   revalidatePath(`/p/${projectId}/leads`);
   revalidatePath(`/p/${projectId}/crm-funnel`);

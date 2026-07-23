@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hashIntakeToken, parseIntakePayload } from "@/lib/intake";
+import { notifyNewLead } from "@/lib/notify";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
@@ -137,6 +138,14 @@ export async function POST(request: NextRequest) {
     actor_id: null,
     action: "lead.received",
     details: { source: payload.source, creative_id: creativeId },
+  });
+
+  await notifyNewLead(admin, projectId, {
+    fullName: payload.fullName,
+    phone: payload.phone,
+    source: payload.source,
+    assignedTo: null,
+    adHeadline: null,
   });
 
   return json(201, { ok: true, lead_id: lead.id, creative_id: creativeId });

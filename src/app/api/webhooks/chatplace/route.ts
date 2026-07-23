@@ -8,6 +8,7 @@ import {
   parseChatEvent,
 } from "@/lib/chat";
 import type { ChatReferral } from "@/lib/chat";
+import { notifyNewLead } from "@/lib/notify";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
@@ -196,6 +197,14 @@ export async function POST(request: NextRequest) {
         actor_id: null,
         action: "chat.lead_created",
         details: { channel: event.channel, source, creative_id: conversationCreativeId },
+      });
+
+      await notifyNewLead(admin, projectId, {
+        fullName: event.contactName ?? existing?.contact_name ?? (phone as string),
+        phone: phone ?? knownPhone,
+        source,
+        assignedTo: null,
+        adHeadline: event.referral?.headline ?? null,
       });
     }
   }
