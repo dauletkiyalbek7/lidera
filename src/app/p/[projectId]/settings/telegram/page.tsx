@@ -10,6 +10,7 @@ import { sectionBlockTitle } from "@/lib/navigation";
 import { loadTelegramState, type TelegramMemberRow } from "@/lib/queries/telegram";
 
 import { ConnectCard } from "./connect-card";
+import { InviteLink } from "./invite-link";
 
 /** Настройки → Telegram-бот (ТЗ, раздел 7): привязка сотрудников к боту платформы. */
 export default async function TelegramSettingsPage({
@@ -25,6 +26,10 @@ export default async function TelegramSettingsPage({
   ]);
 
   const mayManage = canManage || role === "director";
+  // Имя бота без «@» — из него собираем ссылку t.me/<бот>?start=<код>.
+  const botUser = state.botName?.replace(/^@/, "") || null;
+  const inviteUrl = (code: string) =>
+    botUser ? `https://t.me/${botUser}?start=${code}` : null;
 
   const columns: Column<TelegramMemberRow>[] = [
     {
@@ -51,16 +56,24 @@ export default async function TelegramSettingsPage({
     },
     {
       key: "code",
-      header: "Код привязки",
+      header: "Ссылка-приглашение",
       hideOnMobile: true,
-      render: (row) =>
-        row.status === "pending" && row.code ? (
-          <span className="tabular font-semibold text-ink">{row.code}</span>
-        ) : row.status === "linked" ? (
-          <span className="text-muted">{row.username ? `@${row.username}` : "чат привязан"}</span>
-        ) : (
-          <span className="text-faint">—</span>
-        ),
+      render: (row) => {
+        if (row.status === "linked") {
+          return (
+            <span className="text-muted">{row.username ? `@${row.username}` : "чат привязан"}</span>
+          );
+        }
+        if (row.status === "pending" && row.code) {
+          const link = inviteUrl(row.code);
+          return link ? (
+            <InviteLink url={link} />
+          ) : (
+            <span className="tabular font-semibold text-ink">{row.code}</span>
+          );
+        }
+        return <span className="text-faint">—</span>;
+      },
     },
     {
       key: "when",
@@ -84,7 +97,7 @@ export default async function TelegramSettingsPage({
               <input type="hidden" name="project_id" value={projectId} />
               <input type="hidden" name="user_id" value={row.userId} />
               <Button type="submit" size="sm" variant="secondary">
-                {row.status === "none" ? "Выдать код" : "Новый код"}
+                {row.status === "none" ? "Создать ссылку" : "Новая ссылка"}
               </Button>
             </form>
             {row.status !== "none" ? (
@@ -128,15 +141,16 @@ export default async function TelegramSettingsPage({
           empty={{
             icon: "people",
             title: "В проекте пока нет сотрудников",
-            text: "Добавьте их в «Настройки → Сотрудники», и здесь появятся коды привязки.",
+            text: "Добавьте их в «Настройки → Сотрудники», и здесь появятся ссылки-приглашения.",
           }}
         />
       </div>
 
       <p className="mt-3 px-1 text-[12px] leading-relaxed text-faint">
-        Как подключить сотрудника: выдайте ему код, он открывает бота и отправляет этот код
-        одним сообщением. Код одноразовый и действует только в этом проекте — переписка с
-        паролями не нужна. Кнопка «Новый код» сбрасывает прежнюю привязку.
+        Как подключить сотрудника: нажмите «Создать ссылку», скопируйте её и отправьте ему.
+        Он открывает ссылку — Telegram сам передаёт боту код, и чат привязывается к учётке.
+        Ссылка одноразовая и действует только в этом проекте; «Новая ссылка» сбрасывает
+        прежнюю привязку.
       </p>
     </main>
   );

@@ -122,15 +122,56 @@ export async function sendTelegramMessage(
   botToken: string,
   chatId: string,
   text: string,
+  replyMarkup?: unknown,
 ): Promise<boolean> {
   try {
     const response = await fetch(`${TELEGRAM_API}/bot${botToken}/sendMessage`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      }),
     });
     return response.ok;
   } catch {
     return false;
   }
+}
+
+/**
+ * Гасит «часики» на нажатой кнопке. Без этого Telegram крутит загрузку
+ * несколько секунд, будто бот завис.
+ */
+export async function answerCallbackQuery(botToken: string, callbackId: string): Promise<void> {
+  try {
+    await fetch(`${TELEGRAM_API}/bot${botToken}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackId }),
+    });
+  } catch {
+    // Ответ на нажатие не критичен — молчим.
+  }
+}
+
+/** Разбирает нажатие кнопки меню (callback_query). */
+export type CallbackQuery = { id: string; chatId: string; data: string };
+
+export function parseCallbackQuery(body: unknown): CallbackQuery | null {
+  const root = asRecord(body);
+  const callback = root ? asRecord(root.callback_query) : null;
+  if (!callback) return null;
+
+  const id = readText(callback.id) ?? (typeof callback.id === "number" ? String(callback.id) : null);
+  const data = readText(callback.data);
+  const message = asRecord(callback.message);
+  const chat = message ? asRecord(message.chat) : null;
+  const chatId = chat
+    ? readText(chat.id) ?? (typeof chat.id === "number" ? String(chat.id) : null)
+    : null;
+
+  if (!id || !data || !chatId) return null;
+  return { id, chatId, data };
 }

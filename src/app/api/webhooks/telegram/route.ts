@@ -3,19 +3,30 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { readIntegrationCredentialsAsPlatform } from "@/lib/queries/integrations";
 import {
+  answerCallbackQuery,
   extractLinkCode,
   hashTelegramToken,
+  parseCallbackQuery,
   parseTelegramUpdate,
   sendTelegramMessage,
 } from "@/lib/telegram";
+import {
+  BOT_ACTIONS,
+  botMenu,
+  renderMetrics,
+  renderNotLinked,
+  renderReportStub,
+  renderWelcome,
+} from "@/lib/telegram-bot";
+import { findLinkedAccount, loadBotMetrics } from "@/lib/queries/telegram-bot";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
  * Вебхук Telegram-бота (ТЗ, раздел 7: Настройки → Telegram-бот).
- * Сотрудник присылает боту свой код — здесь его чат связывается с учёткой.
  *
- * Telegram шлёт секрет заголовком X-Telegram-Bot-Api-Secret-Token; принимаем
- * также Bearer и ?token= — чтобы адрес можно было проверить обычным curl.
+ * Делает три вещи: привязывает чат к учётке по коду из личной ссылки,
+ * отвечает на кнопки меню и показывает сотруднику его показатели.
+ * Telegram шлёт секрет заголовком X-Telegram-Bot-Api-Secret-Token.
  */
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -34,11 +45,11 @@ function readToken(request: NextRequest): string | null {
   return request.nextUrl.searchParams.get("token")?.trim() || null;
 }
 
-/** Ответ боту не обязателен: без токена от @BotFather привязка всё равно состоится. */
-async function reply(projectId: string, chatId: string, text: string): Promise<void> {
-  const credentials = await readIntegrationCredentialsAsPlatform(projectId, "telegram");
-  if (!credentials) return;
-  await sendTelegramMessage(credentials.token, chatId, text);
+type Admin = ReturnType<typeof createSupabaseAdminClient>;
+
+async function projectCurrency(admin: Admin, projectId: string): Promise<string> {
+  const { data } = await admin.from("projects").select("currency").eq("id", projectId).single();
+  return data?.currency ?? "KZT";
 }
 
 export async function POST(request: NextRequest) {
@@ -76,62 +87,112 @@ export async function POST(request: NextRequest) {
     .update({ received_count: hook.received_count + 1, last_received_at: now })
     .eq("project_id", projectId);
 
+  // Токен бота — чтобы отвечать. Без него привязка всё равно состоится,
+  // просто человек не увидит ответа.
+  const credentials = await readIntegrationCredentialsAsPlatform(projectId, "telegram");
+  const botToken = credentials?.token ?? null;
+  const send = (chatId: string, text: string, markup?: unknown) =>
+    botToken ? sendTelegramMessage(botToken, chatId, text, markup) : Promise.resolve(false);
+
+  const showMetrics = async (
+    chatId: string,
+    account: { userId: string; role: Parameters<typeof loadBotMetrics>[3] },
+  ) => {
+    const [metrics, currency] = await Promise.all([
+      loadBotMetrics(admin, projectId, account.userId, account.role),
+      projectCurrency(admin, projectId),
+    ]);
+    await send(chatId, renderMetrics(metrics, currency));
+  };
+
+  /* ------------------------- нажатие кнопки меню ------------------------- */
+  const callback = parseCallbackQuery(body);
+  if (callback) {
+    if (botToken) await answerCallbackQuery(botToken, callback.id);
+    const account = await findLinkedAccount(admin, projectId, callback.chatId);
+    if (!account) {
+      await send(callback.chatId, renderNotLinked());
+      return json(200, { ok: true, linked: false });
+    }
+    if (callback.data === BOT_ACTIONS.metrics) {
+      await showMetrics(callback.chatId, account);
+    } else if (callback.data === BOT_ACTIONS.report) {
+      await send(callback.chatId, renderReportStub());
+    } else {
+      await send(callback.chatId, renderWelcome(account.fullName, account.role, false), botMenu());
+    }
+    return json(200, { ok: true, action: callback.data });
+  }
+
+  /* ---------------------------- сообщение ------------------------------ */
   const parsed = parseTelegramUpdate(body);
-  // Обновления, которые нам не по адресу (вступления в чат, реакции),
-  // подтверждаем ok: иначе Telegram будет слать их снова и снова.
+  // Прочее (вступления в чат, реакции) подтверждаем, чтобы Telegram не повторял.
   if (!parsed.ok) return json(200, { ok: true, skipped: parsed.error });
 
   const { update } = parsed;
   const code = extractLinkCode(update.text);
 
-  if (!code) {
-    await reply(
-      projectId,
-      update.chatId,
-      "Пришлите код привязки — его выдаёт директор в разделе «Настройки → Telegram-бот».",
-    );
+  /* Привязка по коду из личной ссылки. */
+  if (code) {
+    const { data: account } = await admin
+      .from("telegram_accounts")
+      .select("id, status, user_id")
+      .eq("project_id", projectId)
+      .eq("code", code)
+      .maybeSingle();
+
+    if (!account) {
+      await send(update.chatId, "Ссылка недействительна. Попросите руководителя прислать новую.");
+      return json(200, { ok: true, linked: false, reason: "code_not_found" });
+    }
+
+    if (account.status === "linked") {
+      await send(update.chatId, "Эта ссылка уже использована.");
+      return json(200, { ok: true, linked: false, reason: "code_used" });
+    }
+
+    const { error } = await admin
+      .from("telegram_accounts")
+      .update({
+        chat_id: update.chatId,
+        username: update.username,
+        status: "linked",
+        linked_at: now,
+      })
+      .eq("id", account.id);
+
+    if (error) return json(500, { error: "Не удалось сохранить привязку." });
+
+    await admin.from("activity_log").insert({
+      project_id: projectId,
+      actor_id: account.user_id,
+      action: "telegram.linked",
+      details: { username: update.username },
+    });
+
+    const linked = await findLinkedAccount(admin, projectId, update.chatId);
+    if (linked) {
+      await send(update.chatId, renderWelcome(linked.fullName, linked.role, true), botMenu());
+    }
+    return json(200, { ok: true, linked: true, user_id: account.user_id });
+  }
+
+  /* Без кода — команды уже привязанного сотрудника. */
+  const account = await findLinkedAccount(admin, projectId, update.chatId);
+  if (!account) {
+    await send(update.chatId, renderNotLinked());
     return json(200, { ok: true, linked: false });
   }
 
-  const { data: account } = await admin
-    .from("telegram_accounts")
-    .select("id, status, user_id")
-    .eq("project_id", projectId)
-    .eq("code", code)
-    .maybeSingle();
-
-  if (!account) {
-    await reply(projectId, update.chatId, "Код не найден. Попросите директора выдать новый.");
-    return json(200, { ok: true, linked: false, reason: "code_not_found" });
+  const text = (update.text ?? "").toLowerCase();
+  if (text.startsWith("/metrics") || text.includes("показател")) {
+    await showMetrics(update.chatId, account);
+  } else if (text.startsWith("/report") || text.includes("отчёт") || text.includes("отчет")) {
+    await send(update.chatId, renderReportStub());
+  } else {
+    await send(update.chatId, renderWelcome(account.fullName, account.role, false), botMenu());
   }
-
-  if (account.status === "linked") {
-    await reply(projectId, update.chatId, "Этот код уже использован.");
-    return json(200, { ok: true, linked: false, reason: "code_used" });
-  }
-
-  const { error } = await admin
-    .from("telegram_accounts")
-    .update({
-      chat_id: update.chatId,
-      username: update.username,
-      status: "linked",
-      linked_at: now,
-    })
-    .eq("id", account.id);
-
-  if (error) return json(500, { error: "Не удалось сохранить привязку." });
-
-  await admin.from("activity_log").insert({
-    project_id: projectId,
-    actor_id: account.user_id,
-    action: "telegram.linked",
-    details: { username: update.username },
-  });
-
-  await reply(projectId, update.chatId, "Готово: чат привязан к вашей учётке в Lidera.");
-
-  return json(200, { ok: true, linked: true, user_id: account.user_id });
+  return json(200, { ok: true, linked: true });
 }
 
 /** GET оставляем для проверки «жив ли адрес» — обновления он не принимает. */
