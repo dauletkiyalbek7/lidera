@@ -73,6 +73,38 @@ export function renderShiftChanged(onShift: boolean, role: ProjectRole): string 
     : `🔴 Вы ушли со смены. Новые ${item} вам приходить не будут.`;
 }
 
+/**
+ * Клавиатура-запрос геолокации: кнопка с request_location. Это reply-клавиатура,
+ * не inline — только так Telegram отдаёт координаты. one_time — прячется после нажатия.
+ */
+export function locationRequestKeyboard() {
+  return {
+    keyboard: [[{ text: "📍 Отметиться о приходе", request_location: true }]],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+  };
+}
+
+export function renderRequestLocation(): string {
+  return (
+    "Чтобы встать на смену, отметьтесь о приходе: нажмите кнопку ниже и поделитесь " +
+    "геолокацией. Засчитаем, если вы в офисе."
+  );
+}
+
+export function renderCheckedIn(role: ProjectRole, geofenced: boolean): string {
+  const item = shiftItem(role);
+  const where = geofenced ? " Вы в офисе, отмечены «на месте»." : " Отмечены «на месте».";
+  return `🟢 Вы на смене.${where} Новые ${item} теперь приходят вам по кругу.`;
+}
+
+export function renderOutsideOffice(distance: number, radius: number): string {
+  return (
+    `Вы не в офисе — примерно ${Math.round(distance)} м до него (радиус ${radius} м). ` +
+    "Смена не открыта. Подойдите ближе и отметьтесь ещё раз."
+  );
+}
+
 function line(label: string, today: number, month: number): string {
   return `• ${label}: ${formatNumber(today)} за сегодня · ${formatNumber(month)} за месяц`;
 }

@@ -13,11 +13,15 @@ import {
 import {
   BOT_ACTIONS,
   botMenu,
+  locationRequestKeyboard,
+  renderCheckedIn,
   renderMetrics,
   renderNoAwaitingSale,
   renderNotLinked,
+  renderOutsideOffice,
   renderReceiptConfirmed,
   renderReportStub,
+  renderRequestLocation,
   renderShiftChanged,
   renderWelcome,
 } from "@/lib/telegram-bot";
@@ -25,8 +29,8 @@ import {
   confirmLatestReceipt,
   findLinkedAccount,
   loadBotMetrics,
-  setShift,
 } from "@/lib/queries/telegram-bot";
+import { loadOffice, recordCheckIn, recordCheckOut, recordManualShift } from "@/lib/attendance";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /**
@@ -126,16 +130,25 @@ export async function POST(request: NextRequest) {
       await showMetrics(callback.chatId, account);
     } else if (callback.data === BOT_ACTIONS.report) {
       await send(callback.chatId, renderReportStub());
-    } else if (
-      callback.data === BOT_ACTIONS.shiftOn ||
-      callback.data === BOT_ACTIONS.shiftOff
-    ) {
-      const onShift = callback.data === BOT_ACTIONS.shiftOn;
-      await setShift(admin, projectId, account.userId, onShift);
+    } else if (callback.data === BOT_ACTIONS.shiftOn) {
+      // Есть геозона — просим геолокацию; нет — отмечаемся вручную (запасной вариант).
+      const office = await loadOffice(admin, projectId);
+      if (office) {
+        await send(callback.chatId, renderRequestLocation(), locationRequestKeyboard());
+      } else {
+        await recordManualShift(admin, projectId, account.userId);
+        await send(
+          callback.chatId,
+          renderShiftChanged(true, account.role),
+          botMenu(account.role, true),
+        );
+      }
+    } else if (callback.data === BOT_ACTIONS.shiftOff) {
+      await recordCheckOut(admin, projectId, account.userId);
       await send(
         callback.chatId,
-        renderShiftChanged(onShift, account.role),
-        botMenu(account.role, onShift),
+        renderShiftChanged(false, account.role),
+        botMenu(account.role, false),
       );
     } else {
       await send(
@@ -209,6 +222,27 @@ export async function POST(request: NextRequest) {
   if (!account) {
     await send(update.chatId, renderNotLinked());
     return json(200, { ok: true, linked: false });
+  }
+
+  /* Геолокация — отметка о приходе: внутри радиуса ставим на смену. */
+  if (update.location) {
+    const result = await recordCheckIn(
+      admin,
+      projectId,
+      account.userId,
+      update.location.lat,
+      update.location.lng,
+    );
+    if (result.ok) {
+      await send(
+        update.chatId,
+        renderCheckedIn(account.role, result.geofenced),
+        botMenu(account.role, true),
+      );
+    } else {
+      await send(update.chatId, renderOutsideOffice(result.distance ?? 0, result.radius ?? 0));
+    }
+    return json(200, { ok: true, checkIn: result.ok });
   }
 
   /* Вложение — это чек о покупке: привязываем к последней продаже продажника. */

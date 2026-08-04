@@ -57,20 +57,6 @@ export async function findLinkedAccount(
   };
 }
 
-/** Переключает смену сотрудника из бота и возвращает новое состояние. */
-export async function setShift(
-  admin: Admin,
-  projectId: string,
-  userId: string,
-  onShift: boolean,
-): Promise<void> {
-  await admin
-    .from("project_members")
-    .update({ on_shift: onShift })
-    .eq("project_id", projectId)
-    .eq("user_id", userId);
-}
-
 export type ConfirmedReceipt = { product: string | null; amount: number };
 
 /**

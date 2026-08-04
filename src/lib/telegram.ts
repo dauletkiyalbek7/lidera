@@ -62,6 +62,8 @@ export type TelegramUpdate = {
   text: string | null;
   /** file_id вложения (фото или документа) — им приходит чек о покупке. */
   attachmentFileId: string | null;
+  /** Геолокация из сообщения — ей сотрудник отмечается о приходе. */
+  location: { lat: number; lng: number } | null;
 };
 
 export type TelegramParseResult =
@@ -91,6 +93,15 @@ function readAttachmentFileId(message: Record<string, unknown>): string | null {
   }
   const document = asRecord(message.document);
   return document ? readText(document.file_id) : null;
+}
+
+/** Координаты из сообщения с геолокацией — ими отмечают приход в офис. */
+function readLocation(message: Record<string, unknown>): { lat: number; lng: number } | null {
+  const location = asRecord(message.location);
+  if (!location) return null;
+  const lat = typeof location.latitude === "number" ? location.latitude : null;
+  const lng = typeof location.longitude === "number" ? location.longitude : null;
+  return lat !== null && lng !== null ? { lat, lng } : null;
 }
 
 /**
@@ -123,6 +134,7 @@ export function parseTelegramUpdate(body: unknown): TelegramParseResult {
       fullName: fullName ? fullName.slice(0, MAX_NAME) : null,
       text: (readText(message.text) ?? readText(message.caption))?.slice(0, MAX_TEXT) ?? null,
       attachmentFileId: readAttachmentFileId(message),
+      location: readLocation(message),
     },
   };
 }

@@ -384,6 +384,10 @@ export type Database = {
       }
       attendance: {
         Row: {
+          check_in_at: string | null
+          check_in_lat: number | null
+          check_in_lng: number | null
+          check_out_at: string | null
           created_at: string
           date: string
           id: string
@@ -394,6 +398,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          check_in_at?: string | null
+          check_in_lat?: number | null
+          check_in_lng?: number | null
+          check_out_at?: string | null
           created_at?: string
           date: string
           id?: string
@@ -404,6 +412,10 @@ export type Database = {
           user_id: string
         }
         Update: {
+          check_in_at?: string | null
+          check_in_lat?: number | null
+          check_in_lng?: number | null
+          check_out_at?: string | null
           created_at?: string
           date?: string
           id?: string
@@ -1218,6 +1230,9 @@ export type Database = {
           id: string
           name: string
           niche: string
+          office_lat: number | null
+          office_lng: number | null
+          office_radius_m: number
           owner_id: string
           plan: string
           status: string
@@ -1235,6 +1250,9 @@ export type Database = {
           id?: string
           name: string
           niche: string
+          office_lat?: number | null
+          office_lng?: number | null
+          office_radius_m?: number
           owner_id: string
           plan?: string
           status?: string
@@ -1252,6 +1270,9 @@ export type Database = {
           id?: string
           name?: string
           niche?: string
+          office_lat?: number | null
+          office_lng?: number | null
+          office_radius_m?: number
           owner_id?: string
           plan?: string
           status?: string

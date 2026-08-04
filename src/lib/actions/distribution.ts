@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireProjectContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { distributeUnassigned } from "@/lib/leads/assign";
+import { recordCheckOut, recordManualShift } from "@/lib/attendance";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 
 /** Раздача лидов и смена (ТЗ, Блок 2). */
@@ -52,13 +53,16 @@ export async function toggleShift(formData: FormData): Promise<void> {
   const { user } = await requireProjectContext(projectId);
   if (!hasServiceRoleKey()) return;
 
-  await createSupabaseAdminClient()
-    .from("project_members")
-    .update({ on_shift: next })
-    .eq("project_id", projectId)
-    .eq("user_id", user.id);
+  // Ручной тумблер (запасной вариант) тоже отмечает табель, чтобы данные сходились.
+  const admin = createSupabaseAdminClient();
+  if (next) {
+    await recordManualShift(admin, projectId, user.id);
+  } else {
+    await recordCheckOut(admin, projectId, user.id);
+  }
 
   revalidatePath(`/p/${projectId}/manager-office`);
   revalidatePath(`/p/${projectId}/salesperson-office`);
+  revalidatePath(`/p/${projectId}/attendance`);
   revalidatePath(`/p/${projectId}/leads`);
 }

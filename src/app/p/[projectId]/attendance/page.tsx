@@ -20,6 +20,8 @@ import { sectionBlockTitle } from "@/lib/navigation";
 import { loadMembers } from "@/lib/queries/crm";
 import { loadAttendance } from "@/lib/queries/hr";
 
+import { OfficeLocationForm } from "./office-form";
+
 /** Сколько дней помещается в табель: дальше он превращается в бесконечную ленту. */
 const MAX_DAYS = 31;
 
@@ -34,14 +36,16 @@ export default async function AttendancePage({
   const { projectId } = await params;
   const range = readDateRange(await searchParams);
 
-  const [{ role, canManage }, members, attendance] = await Promise.all([
+  const [{ project, role, canManage }, members, attendance] = await Promise.all([
     requireSectionAccess(projectId, "attendance"),
     loadMembers(projectId),
     loadAttendance(projectId, range),
   ]);
 
   const mayMark = canManage || role === "director" || role === "rop";
+  const maySetOffice = canManage || role === "director";
   const staff = members.filter((member) => member.status === "active");
+  const onShiftNow = staff.filter((member) => member.onShift);
   const days = enumerateDays(range, MAX_DAYS);
   const currentDate = today();
 
@@ -92,6 +96,37 @@ export default async function AttendancePage({
       <div className="mt-6">
         <StatStrip stats={stats} />
       </div>
+
+      {maySetOffice || onShiftNow.length > 0 ? (
+        <div className="mt-5 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+          {maySetOffice ? (
+            <OfficeLocationForm
+              projectId={projectId}
+              lat={project.office_lat}
+              lng={project.office_lng}
+              radius={project.office_radius_m ?? 150}
+            />
+          ) : null}
+          <div className="card p-5">
+            <h3 className="text-[15px] font-semibold text-ink">Сейчас на смене</h3>
+            {onShiftNow.length === 0 ? (
+              <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
+                Никого нет на смене. Сотрудники отмечаются о приходе в Telegram-боте, и им
+                начинают приходить лиды и пробные.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {onShiftNow.map((member) => (
+                  <li key={member.userId} className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-medium text-ink">{member.fullName}</span>
+                    <Badge tone="positive">{ROLE_LABELS[member.role]} · на смене</Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       <GroupLabel>Табель</GroupLabel>
 
