@@ -2,9 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import type { Database } from "@/lib/database.types";
+import type { Database, Json } from "@/lib/database.types";
 import { createdAtBounds, startOfMonth, today } from "@/lib/date-range";
 import type { ProjectRole } from "@/lib/domain";
+import { REPORT_FIELDS } from "@/lib/reports";
 
 /**
  * Персональные показатели для Telegram-бота (ТЗ, раздел 7).
@@ -55,6 +56,115 @@ export async function findLinkedAccount(
     role: member.role as ProjectRole,
     onShift: member.on_shift ?? false,
   };
+}
+
+/* ----------------------- «Мой отчёт» из бота ----------------------- */
+
+/**
+ * Пошаговый отчёт в боте. Черновик держим прямо в employee_reports.content:
+ * скрытый ключ `_step` — индекс следующего вопроса. Есть `_step` — сотрудник в
+ * процессе заполнения; дошли до конца — ключ убираем, остаётся готовый отчёт.
+ * Отдельная колонка состояния не нужна — web-форма лишние ключи игнорирует.
+ */
+const REPORT_STEP_KEY = "_step";
+
+async function todaysReportRow(
+  admin: Admin,
+  projectId: string,
+  userId: string,
+): Promise<{ id: string; content: Record<string, unknown> } | null> {
+  const { data } = await admin
+    .from("employee_reports")
+    .select("id, content")
+    .eq("project_id", projectId)
+    .eq("author_id", userId)
+    .eq("report_date", today())
+    .maybeSingle();
+  if (!data) return null;
+  const content =
+    data.content && typeof data.content === "object"
+      ? (data.content as Record<string, unknown>)
+      : {};
+  return { id: data.id, content };
+}
+
+function stepOf(content: Record<string, unknown>): number | null {
+  const step = content[REPORT_STEP_KEY];
+  return typeof step === "number" ? step : null;
+}
+
+/** В процессе ли сотрудник заполняет отчёт — по этому решаем, как трактовать текст. */
+export async function reportStep(admin: Admin, projectId: string, userId: string): Promise<number | null> {
+  const row = await todaysReportRow(admin, projectId, userId);
+  return row ? stepOf(row.content) : null;
+}
+
+/** Начать (или перезапустить) отчёт за сегодня. Возвращает первый шаг. */
+export async function startReport(admin: Admin, projectId: string, userId: string): Promise<number> {
+  const row = await todaysReportRow(admin, projectId, userId);
+  const content: Json = { [REPORT_STEP_KEY]: 0 };
+  if (row) {
+    await admin.from("employee_reports").update({ content }).eq("id", row.id);
+  } else {
+    await admin.from("employee_reports").insert({
+      project_id: projectId,
+      author_id: userId,
+      report_date: today(),
+      content,
+    });
+  }
+  return 0;
+}
+
+export type ReportAdvance = { finished: boolean; nextStep: number | null; reask: boolean };
+
+/** Принять ответ на текущий вопрос и сдвинуть диалог. */
+export async function advanceReport(
+  admin: Admin,
+  projectId: string,
+  userId: string,
+  text: string,
+): Promise<ReportAdvance> {
+  const row = await todaysReportRow(admin, projectId, userId);
+  const step = row ? stepOf(row.content) : null;
+  if (!row || step === null) return { finished: true, nextStep: null, reask: false };
+
+  const field = REPORT_FIELDS[step];
+  const value = text.trim();
+  // Обязательное поле нельзя пропустить — переспрашиваем.
+  if (field.required && (value === "" || value === "-")) {
+    return { finished: false, nextStep: step, reask: true };
+  }
+
+  const content = { ...row.content };
+  content[field.name] = value === "-" ? "" : value;
+  const nextStep = step + 1;
+
+  if (nextStep >= REPORT_FIELDS.length) {
+    delete content[REPORT_STEP_KEY];
+    await admin.from("employee_reports").update({ content: content as Json }).eq("id", row.id);
+    return { finished: true, nextStep: null, reask: false };
+  }
+
+  content[REPORT_STEP_KEY] = nextStep;
+  await admin.from("employee_reports").update({ content: content as Json }).eq("id", row.id);
+  return { finished: false, nextStep, reask: false };
+}
+
+/** Отмена: пустой черновик удаляем, начатый — оставляем как есть, убрав пометку шага. */
+export async function cancelReport(admin: Admin, projectId: string, userId: string): Promise<void> {
+  const row = await todaysReportRow(admin, projectId, userId);
+  if (!row || stepOf(row.content) === null) return;
+  const content = { ...row.content };
+  delete content[REPORT_STEP_KEY];
+  const hasAnswers = REPORT_FIELDS.some(
+    (f) => typeof content[f.name] === "string" && (content[f.name] as string).length > 0,
+  );
+  if (hasAnswers) {
+    await admin.from("employee_reports").update({ content: content as Json }).eq("id", row.id);
+  } else {
+    await admin.from("employee_reports").delete().eq("id", row.id);
+  }
 }
 
 export type ConfirmedReceipt = { product: string | null; amount: number };

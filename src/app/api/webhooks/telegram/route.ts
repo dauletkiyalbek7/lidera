@@ -20,15 +20,21 @@ import {
   renderNotLinked,
   renderOutsideOffice,
   renderReceiptConfirmed,
-  renderReportStub,
+  renderReportCancelled,
+  renderReportPrompt,
+  renderReportSaved,
   renderRequestLocation,
   renderShiftChanged,
   renderWelcome,
 } from "@/lib/telegram-bot";
 import {
+  advanceReport,
+  cancelReport,
   confirmLatestReceipt,
   findLinkedAccount,
   loadBotMetrics,
+  reportStep,
+  startReport,
 } from "@/lib/queries/telegram-bot";
 import { loadOffice, recordCheckIn, recordCheckOut, recordManualShift } from "@/lib/attendance";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
@@ -129,7 +135,8 @@ export async function POST(request: NextRequest) {
     if (callback.data === BOT_ACTIONS.metrics) {
       await showMetrics(callback.chatId, account);
     } else if (callback.data === BOT_ACTIONS.report) {
-      await send(callback.chatId, renderReportStub());
+      const step = await startReport(admin, projectId, account.userId);
+      await send(callback.chatId, renderReportPrompt(step));
     } else if (callback.data === BOT_ACTIONS.shiftOn) {
       // Есть геозона — просим геолокацию; нет — отмечаемся вручную (запасной вариант).
       const office = await loadOffice(admin, projectId);
@@ -260,11 +267,31 @@ export async function POST(request: NextRequest) {
     return json(200, { ok: true, receipt: Boolean(confirmed) });
   }
 
-  const text = (update.text ?? "").toLowerCase();
+  const rawText = update.text ?? "";
+  const text = rawText.toLowerCase().trim();
+
+  /* Пока идёт отчёт, текст — это ответы на вопросы (приоритет над меню). */
+  const step = await reportStep(admin, projectId, account.userId);
+  if (step !== null) {
+    if (text === "отмена" || text === "отменить" || text === "/cancel") {
+      await cancelReport(admin, projectId, account.userId);
+      await send(update.chatId, renderReportCancelled(), botMenu(account.role, account.onShift));
+    } else {
+      const result = await advanceReport(admin, projectId, account.userId, rawText);
+      if (result.finished) {
+        await send(update.chatId, renderReportSaved(), botMenu(account.role, account.onShift));
+      } else {
+        await send(update.chatId, renderReportPrompt(result.nextStep ?? 0, result.reask));
+      }
+    }
+    return json(200, { ok: true, report: true });
+  }
+
   if (text.startsWith("/metrics") || text.includes("показател")) {
     await showMetrics(update.chatId, account);
   } else if (text.startsWith("/report") || text.includes("отчёт") || text.includes("отчет")) {
-    await send(update.chatId, renderReportStub());
+    const first = await startReport(admin, projectId, account.userId);
+    await send(update.chatId, renderReportPrompt(first));
   } else {
     await send(
       update.chatId,

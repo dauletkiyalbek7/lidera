@@ -1,5 +1,6 @@
 import { ROLE_LABELS, type ProjectRole } from "@/lib/domain";
 import { formatMoney, formatNumber } from "@/lib/format";
+import { REPORT_FIELDS } from "@/lib/reports";
 import type { BotMetrics } from "@/lib/queries/telegram-bot";
 
 /**
@@ -161,11 +162,24 @@ export function renderNoAwaitingSale(): string {
   );
 }
 
-export function renderReportStub(): string {
-  return (
-    "Заполнение отчёта из бота скоро подключим. " +
-    "Пока отправьте отчёт на сайте в разделе «Мой отчёт»."
-  );
+/** Вопрос очередного поля отчёта. На необязательных подсказываем про пропуск. */
+export function renderReportPrompt(step: number, reask = false): string {
+  const field = REPORT_FIELDS[step];
+  const head = reask
+    ? "Это поле обязательное — напишите ответ.\n\n"
+    : step === 0
+      ? "📝 Отчёт за день. Отвечайте по одному сообщению, «Отмена» — прервать.\n\n"
+      : "";
+  const hint = field.required ? "" : "\n(или «-», чтобы пропустить)";
+  return `${head}${field.label}?${hint}`;
+}
+
+export function renderReportSaved(): string {
+  return "✅ Отчёт за день сохранён. Он появился в разделе «Мой отчёт».";
+}
+
+export function renderReportCancelled(): string {
+  return "Отчёт отменён. Можно начать заново кнопкой «Отчёт за день».";
 }
 
 export function renderNotLinked(): string {
