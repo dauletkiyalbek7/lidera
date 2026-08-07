@@ -1432,6 +1432,8 @@ export type Database = {
       sales: {
         Row: {
           amount: number
+          capi_at: string | null
+          capi_status: string
           created_at: string
           creative_id: string | null
           customer_id: string | null
@@ -1446,6 +1448,8 @@ export type Database = {
         }
         Insert: {
           amount?: number
+          capi_at?: string | null
+          capi_status?: string
           created_at?: string
           creative_id?: string | null
           customer_id?: string | null
@@ -1460,6 +1464,8 @@ export type Database = {
         }
         Update: {
           amount?: number
+          capi_at?: string | null
+          capi_status?: string
           created_at?: string
           creative_id?: string | null
           customer_id?: string | null

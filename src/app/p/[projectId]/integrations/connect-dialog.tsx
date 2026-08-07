@@ -20,6 +20,9 @@ export type ConnectDialogProvider = {
   secretPlaceholder: string;
   accountLabel?: string;
   accountPlaceholder?: string;
+  extraLabel?: string;
+  extraPlaceholder?: string;
+  extraKey?: string;
   where: string;
 };
 
@@ -37,11 +40,13 @@ export function ConnectIntegrationDialog({
   provider,
   connected,
   currentAccount,
+  currentExtra,
 }: {
   projectId: string;
   provider: ConnectDialogProvider;
   connected: boolean;
   currentAccount: string | null;
+  currentExtra?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState(connectIntegration, INITIAL_STATE);
@@ -155,6 +160,25 @@ export function ConnectIntegrationDialog({
                   />
                   <span className="text-[12px] text-faint">
                     Это не секрет — виден команде проекта.
+                  </span>
+                </label>
+              ) : null}
+
+              {provider.extraKey && provider.extraLabel ? (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[13px] font-medium text-muted">
+                    {provider.extraLabel} <span className="text-faint">— необязательно</span>
+                  </span>
+                  <input
+                    name={provider.extraKey}
+                    autoComplete="off"
+                    spellCheck={false}
+                    defaultValue={currentExtra ?? ""}
+                    placeholder={provider.extraPlaceholder}
+                    className={FIELD_CLASS}
+                  />
+                  <span className="text-[12px] text-faint">
+                    Нужен, чтобы отправлять покупки в рекламный кабинет (CAPI).
                   </span>
                 </label>
               ) : null}

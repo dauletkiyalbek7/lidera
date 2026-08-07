@@ -6,6 +6,7 @@ import type { Database, Json } from "@/lib/database.types";
 import { createdAtBounds, startOfMonth, today } from "@/lib/date-range";
 import type { ProjectRole } from "@/lib/domain";
 import { REPORT_FIELDS } from "@/lib/reports";
+import { sendPurchaseToMeta } from "@/lib/ads/capi";
 
 /**
  * Персональные показатели для Telegram-бота (ТЗ, раздел 7).
@@ -171,9 +172,10 @@ export type ConfirmedReceipt = { product: string | null; amount: number };
 
 /**
  * Продажник прислал боту чек: привязываем его к своей последней продаже, ждущей
- * подтверждения, и помечаем чек полученным. Возвращает продажу или null, если
- * ждущей чек продажи нет (тогда бот так и ответит). Автопроверку суммы и CAPI —
- * позже; пока фиксируем сам факт чека.
+ * подтверждения, помечаем чек полученным и шлём событие покупки в рекламный
+ * кабинет (CAPI). Возвращает продажу или null, если ждущей чек продажи нет (тогда
+ * бот так и ответит). CAPI не блокирует подтверждение: не отправилось — просто
+ * фиксируем статус, продажа всё равно подтверждена.
  */
 export async function confirmLatestReceipt(
   admin: Admin,
@@ -183,7 +185,7 @@ export async function confirmLatestReceipt(
 ): Promise<ConfirmedReceipt | null> {
   const { data: sale } = await admin
     .from("sales")
-    .select("id, product, amount")
+    .select("id, product, amount, customers(phone), leads(phone)")
     .eq("project_id", projectId)
     .eq("seller_id", userId)
     .eq("receipt_status", "awaiting")
@@ -201,6 +203,34 @@ export async function confirmLatestReceipt(
       receipt_at: new Date().toISOString(),
     })
     .eq("id", sale.id);
+
+  // Событие покупки в Meta CAPI. Атрибуцию Meta делает по хешу телефона.
+  const phone = sale.customers?.phone ?? sale.leads?.phone ?? null;
+  const { data: project } = await admin
+    .from("projects")
+    .select("currency")
+    .eq("id", projectId)
+    .maybeSingle();
+
+  const capi = await sendPurchaseToMeta(admin, {
+    projectId,
+    saleId: sale.id,
+    amount: Number(sale.amount),
+    currency: project?.currency ?? "KZT",
+    phone,
+  });
+
+  await admin
+    .from("sales")
+    .update({ capi_status: capi.status, capi_at: new Date().toISOString() })
+    .eq("id", sale.id);
+
+  await admin.from("activity_log").insert({
+    project_id: projectId,
+    actor_id: userId,
+    action: "sale.capi",
+    details: { sale_id: sale.id, status: capi.status, reason: capi.reason },
+  });
 
   return { product: sale.product, amount: Number(sale.amount) };
 }

@@ -61,9 +61,21 @@ export async function connectIntegration(
     .trim()
     .slice(0, MAX_ACCOUNT_LENGTH);
 
+  // Доп-поле config (у Meta — Pixel ID для CAPI). Несекретное, лежит открыто.
+  const extra =
+    provider.extraKey &&
+    String(formData.get(provider.extraKey) ?? "")
+      .trim()
+      .slice(0, MAX_ACCOUNT_LENGTH);
+
+  const config: Record<string, string> = {};
+  if (account) config.account = account;
+  if (provider.extraKey && extra) config[provider.extraKey] = extra;
+
   const supabase = await createSupabaseServerClient();
 
-  // В обычной таблице лежит только то, что не жалко показать: статус и ID кабинета.
+  // В обычной таблице лежит только то, что не жалко показать: статус, ID кабинета,
+  // Pixel ID. Секрет (токен) уходит отдельно, зашифрованным.
   const { data: integration, error } = await supabase
     .from("integrations")
     .upsert(
@@ -71,7 +83,7 @@ export async function connectIntegration(
         project_id: projectId,
         provider: provider.key,
         status: "connected",
-        config: account ? { account } : {},
+        config,
       },
       { onConflict: "project_id,provider" },
     )

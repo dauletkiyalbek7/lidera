@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 import { decryptSecret, hasSecretsKey } from "@/lib/crypto";
+import { getIntegrationProvider } from "@/lib/integrations";
 
 /** Состояние подключений проекта (ТЗ, Блок 4). Секреты сюда не попадают — только подсказки. */
 
@@ -13,6 +14,8 @@ export type IntegrationState = {
   status: string;
   /** Несекретный идентификатор кабинета: ID рекламного аккаунта, имя бота. */
   account: string | null;
+  /** Доп-поле config (у Meta — Pixel ID для CAPI); тоже несекретное. */
+  extra: string | null;
   /** «…yZ4k» — последние символы ключа, чтобы человек узнал свой токен. */
   hint: string | null;
   secretUpdatedAt: string | null;
@@ -20,8 +23,12 @@ export type IntegrationState = {
 };
 
 function readAccount(config: unknown): string | null {
+  return readConfigValue(config, "account");
+}
+
+function readConfigValue(config: unknown, key: string): string | null {
   if (!config || typeof config !== "object") return null;
-  const value = (config as Record<string, unknown>).account;
+  const value = (config as Record<string, unknown>)[key];
   return typeof value === "string" && value ? value : null;
 }
 
@@ -32,15 +39,19 @@ export async function loadIntegrations(projectId: string): Promise<IntegrationSt
     .select("id, provider, status, config, created_at")
     .eq("project_id", projectId);
 
-  const rows = (data ?? []).map((row) => ({
-    id: row.id,
-    provider: row.provider,
-    status: row.status,
-    account: readAccount(row.config),
-    hint: null as string | null,
-    secretUpdatedAt: null as string | null,
-    createdAt: row.created_at,
-  }));
+  const rows = (data ?? []).map((row) => {
+    const extraKey = getIntegrationProvider(row.provider)?.extraKey;
+    return {
+      id: row.id,
+      provider: row.provider,
+      status: row.status,
+      account: readAccount(row.config),
+      extra: extraKey ? readConfigValue(row.config, extraKey) : null,
+      hint: null as string | null,
+      secretUpdatedAt: null as string | null,
+      createdAt: row.created_at,
+    };
+  });
 
   // Подсказки лежат в таблице, закрытой RLS наглухо: её читает только сервисный ключ.
   if (rows.length === 0 || !hasServiceRoleKey()) return rows;

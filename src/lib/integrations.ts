@@ -16,6 +16,11 @@ export type IntegrationProvider = {
   /** Необязательный несекретный идентификатор кабинета: его показываем открыто. */
   accountLabel?: string;
   accountPlaceholder?: string;
+  /** Ещё одно несекретное поле config (у Meta — Pixel ID для CAPI). */
+  extraLabel?: string;
+  extraPlaceholder?: string;
+  /** Ключ этого поля в config и в форме. */
+  extraKey?: string;
   /** Где взять ключ — подсказка человеку, который подключает. */
   where: string;
   /** Разделы платформы, которые оживут после подключения. */
@@ -32,6 +37,9 @@ export const INTEGRATION_PROVIDERS: readonly IntegrationProvider[] = [
     secretPlaceholder: "EAAG…",
     accountLabel: "ID рекламного кабинета",
     accountPlaceholder: "act_1234567890",
+    extraLabel: "Pixel ID (dataset) — для CAPI",
+    extraPlaceholder: "1234567890",
+    extraKey: "pixel_id",
     where: "Meta Business → Настройки → Токены доступа",
     powers: ["Реклама", "Аналитика креативов", "CAPI"],
   },

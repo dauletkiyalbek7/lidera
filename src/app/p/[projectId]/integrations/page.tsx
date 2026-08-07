@@ -127,6 +127,7 @@ export default async function IntegrationsPage({
                     provider={provider}
                     connected={connected}
                     account={state?.account ?? null}
+                    extra={state?.extra ?? null}
                     disabled={!serverReady}
                   />
                   {connected ? (
@@ -158,12 +159,14 @@ function ConnectButton({
   provider,
   connected,
   account,
+  extra,
   disabled,
 }: {
   projectId: string;
   provider: (typeof INTEGRATION_PROVIDERS)[number];
   connected: boolean;
   account: string | null;
+  extra: string | null;
   disabled: boolean;
 }) {
   if (disabled) {
@@ -184,10 +187,14 @@ function ConnectButton({
         secretPlaceholder: provider.secretPlaceholder,
         accountLabel: provider.accountLabel,
         accountPlaceholder: provider.accountPlaceholder,
+        extraLabel: provider.extraLabel,
+        extraPlaceholder: provider.extraPlaceholder,
+        extraKey: provider.extraKey,
         where: provider.where,
       }}
       connected={connected}
       currentAccount={account}
+      currentExtra={extra}
     />
   );
 }

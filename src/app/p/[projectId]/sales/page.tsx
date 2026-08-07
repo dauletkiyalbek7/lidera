@@ -20,6 +20,13 @@ import { loadMembers, loadRangeMetrics, loadSales } from "@/lib/queries/crm";
 import { loadReturnsTotals } from "@/lib/queries/returns";
 import type { Tables } from "@/lib/database.types";
 
+/** Подпись статуса отправки события покупки в рекламный кабинет (CAPI). */
+const CAPI_LABEL: Record<string, string> = {
+  sent: "✓ ушло в Meta",
+  failed: "⚠ Meta: ошибка",
+  skipped: "Meta не настроена",
+};
+
 /** Продажи: деньги периода и список сделок (ТЗ, Блок 2). */
 export default async function SalesPage({
   params,
@@ -129,12 +136,20 @@ export default async function SalesPage({
       key: "receipt",
       header: "Чек",
       hideOnMobile: true,
-      render: (sale) =>
-        sale.receipt_status === "confirmed" ? (
-          <Badge tone="positive">Подтверждён</Badge>
-        ) : (
-          <Badge tone="warning">Ожидается</Badge>
-        ),
+      render: (sale) => (
+        <div className="flex flex-col gap-1">
+          {sale.receipt_status === "confirmed" ? (
+            <Badge tone="positive">Подтверждён</Badge>
+          ) : (
+            <Badge tone="warning">Ожидается</Badge>
+          )}
+          {sale.receipt_status === "confirmed" ? (
+            <span className="text-[11px] text-faint" title="Событие покупки в рекламный кабинет">
+              {CAPI_LABEL[sale.capi_status] ?? null}
+            </span>
+          ) : null}
+        </div>
+      ),
     },
     {
       key: "amount",
