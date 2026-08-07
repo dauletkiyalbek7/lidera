@@ -141,6 +141,27 @@ export async function loadCustomers(projectId: string): Promise<Tables<"customer
   return data ?? [];
 }
 
+export type CreativeOption = { id: string; label: string; name: string };
+
+/**
+ * Креативы с UTM-меткой — для выбора при ручном заведении лида (WhatsApp).
+ * Берём только помеченные: это и есть креативы, которые владелец включил в
+ * привязку. По метке менеджер узнаёт, с какого объявления пришёл человек.
+ */
+export async function loadCreativeOptions(projectId: string): Promise<CreativeOption[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("creatives")
+    .select("id, name, utm_label")
+    .eq("project_id", projectId)
+    .not("utm_label", "is", null)
+    .order("utm_label", { ascending: true });
+
+  return (data ?? [])
+    .filter((row) => row.utm_label && row.utm_label.trim())
+    .map((row) => ({ id: row.id, label: row.utm_label as string, name: row.name }));
+}
+
 /** Каталог склада. Состояние на сейчас, поэтому диапазон дат его не фильтрует. */
 export const loadProducts = cache(async (projectId: string): Promise<Tables<"products">[]> => {
   const supabase = await createSupabaseServerClient();

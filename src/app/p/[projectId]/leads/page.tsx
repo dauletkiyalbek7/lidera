@@ -15,11 +15,12 @@ import {
   formatNumber,
   formatPercent,
 } from "@/lib/format";
-import { loadLeads, loadMembers } from "@/lib/queries/crm";
+import { loadCreativeOptions, loadLeads, loadMembers } from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
 import { LeadOps } from "./lead-ops";
 import { BookTrialCell } from "./book-trial";
+import { AddLeadButton } from "./add-lead";
 
 /** Лиды: сколько пришло, что с ними стало, кто ответственный (ТЗ, Блок 2). */
 export default async function LeadsPage({
@@ -33,11 +34,13 @@ export default async function LeadsPage({
   const range = readDateRange(await searchParams);
 
   // Контекст проекта и данные раздела независимы — уходят одной параллельной волной.
-  const [{ project, niche, canManage, role, user }, leads, members] = await Promise.all([
-    requireSectionAccess(projectId, "leads"),
-    loadLeads(projectId, range),
-    loadMembers(projectId),
-  ]);
+  const [{ project, niche, canManage, role, user }, leads, members, creativeOptions] =
+    await Promise.all([
+      requireSectionAccess(projectId, "leads"),
+      loadLeads(projectId, range),
+      loadMembers(projectId),
+      loadCreativeOptions(projectId),
+    ]);
 
   const memberNames = new Map(members.map((member) => [member.userId, member.fullName]));
 
@@ -49,6 +52,8 @@ export default async function LeadsPage({
     (lead) => !lead.assigned_to && lead.status === "new",
   ).length;
   const showOps = niche === "education" && (mayDistribute || isManager);
+  // Завести лид руками (WhatsApp) может руководитель или менеджер.
+  const mayAddLead = mayDistribute || isManager;
   const flow = LEAD_STATUS_FLOW[niche];
 
   // Записать на пробный может руководитель (любой лид) или менеджер (свой лид).
@@ -203,6 +208,9 @@ export default async function LeadsPage({
         subtitle={`Входящие заявки · ${formatDateRange(range.from, range.to)}`}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {mayAddLead ? (
+              <AddLeadButton projectId={projectId} creatives={creativeOptions} />
+            ) : null}
             {showOps ? (
               <LeadOps
                 projectId={projectId}
