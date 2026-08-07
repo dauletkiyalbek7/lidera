@@ -209,8 +209,12 @@ export async function loadCreativesAnalytics(
 
   // Показываем то, что жило в выбранном периоде: тратило деньги или принесло
   // заявку. Остальное — тысячи спящих объявлений, они только мешают смотреть.
+  // Помеченные UTM-меткой креативы владелец завёл сам — их держим на виду всегда,
+  // даже без расхода и заявок, иначе только что созданный креатив «пропадёт».
   const visible = onlyActive
-    ? courses.filter((row) => row.spendSource > 0 || row.spend > 0 || row.leads > 0)
+    ? courses.filter(
+        (row) => row.spendSource > 0 || row.spend > 0 || row.leads > 0 || Boolean(row.utmLabel),
+      )
     : courses;
 
   // Сначала то, что требует действия (выключить/слабые), потом лучшие.
