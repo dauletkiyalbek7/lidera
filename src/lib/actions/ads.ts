@@ -42,6 +42,43 @@ export async function fetchCreativeInsight(
  * Синхронизация Meta Ads кнопкой на экране (ТЗ, Блок 3).
  * Сама работа — в runMetaSync: то же самое делает почасовое расписание.
  */
+/** Длина метки с запасом: это короткий слаг для utm_content, не текст. */
+const MAX_UTM_LABEL = 120;
+
+/**
+ * UTM-метка креатива: владелец задаёт её сам и ставит в ссылку объявления как
+ * utm_content. По ней intake находит именно этот креатив (см. /api/intake).
+ * Пустое значение снимает метку. Уникальность в проекте гарантирует индекс БД.
+ */
+export async function setCreativeUtmLabel(
+  projectId: string,
+  creativeId: string,
+  rawLabel: string,
+): Promise<{ error: string | null }> {
+  const { role, canManage } = await requireProjectContext(projectId);
+  if (!mayManageAds(role, canManage)) {
+    return { error: "Метку задаёт владелец или директор проекта." };
+  }
+
+  const label = rawLabel.trim().slice(0, MAX_UTM_LABEL);
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("creatives")
+    .update({ utm_label: label || null })
+    .eq("project_id", projectId)
+    .eq("id", creativeId);
+
+  if (error) {
+    if (error.code === "23505") {
+      return { error: "Такая метка уже занята другим креативом." };
+    }
+    return { error: "Не удалось сохранить метку." };
+  }
+
+  revalidatePath(`/p/${projectId}/creatives-analytics`);
+  return { error: null };
+}
+
 export async function syncMetaAds(
   _prevState: AdsSyncState,
   formData: FormData,

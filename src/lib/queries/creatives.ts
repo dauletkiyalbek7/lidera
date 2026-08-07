@@ -39,6 +39,8 @@ export type CreativeRow = CreativePerformance & {
   verdict: CreativeStatus;
   /** Цена лида кабинета — по ней вынесен вердикт. */
   cplSource: number | null;
+  /** UTM-метка: владелец задаёт её и ставит в ссылку объявления (utm_content). */
+  utmLabel: string | null;
 };
 
 export type CreativesData = {
@@ -99,7 +101,7 @@ export async function loadCreativesAnalytics(
       supabase
         .from("creatives")
         .select(
-          "id, name, platform, status, preview_url, thumbnail_url, media_type, campaign_id, ad_set_id",
+          "id, name, platform, status, preview_url, thumbnail_url, media_type, campaign_id, ad_set_id, utm_label",
         )
         .eq("project_id", projectId),
       supabase.from("ad_campaigns").select("id, name, currency").eq("project_id", projectId),
@@ -197,6 +199,7 @@ export async function loadCreativesAnalytics(
       purpose,
       verdict,
       cplSource,
+      utmLabel: creative.utm_label ?? null,
       ...derivePerformance(ads, crm),
     };
   });

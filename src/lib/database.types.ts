@@ -684,6 +684,7 @@ export type Database = {
           status: string | null
           synced_at: string
           thumbnail_url: string | null
+          utm_label: string | null
         }
         Insert: {
           ad_set_id?: string | null
@@ -699,6 +700,7 @@ export type Database = {
           status?: string | null
           synced_at?: string
           thumbnail_url?: string | null
+          utm_label?: string | null
         }
         Update: {
           ad_set_id?: string | null
@@ -714,6 +716,7 @@ export type Database = {
           status?: string | null
           synced_at?: string
           thumbnail_url?: string | null
+          utm_label?: string | null
         }
         Relationships: [
           {

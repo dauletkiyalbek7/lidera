@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { fetchCreativeInsight } from "@/lib/actions/ads";
+import { fetchCreativeInsight, setCreativeUtmLabel } from "@/lib/actions/ads";
 import type { CreativeInsight } from "@/lib/ads/creative-insight";
 import { STATUS_META } from "@/lib/ads/creative-status";
 import { Badge } from "@/components/ui/badge";
@@ -124,6 +124,73 @@ function VideoBlock({
   );
 }
 
+/**
+ * UTM-метка креатива: владелец задаёт слаг и ставит его в ссылку объявления как
+ * utm_content. По нему заявка с сайта и позже чек связываются с этим креативом.
+ * Метку лучше задавать здесь — на уже синхронизированном креативе, чтобы расход
+ * из кабинета и заявки/чеки из CRM сходились в одной строке.
+ */
+function UtmLabelBlock({ row, projectId }: { row: CreativeRow; projectId: string }) {
+  const [label, setLabel] = useState(row.utmLabel ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const trimmed = label.trim();
+  const unchanged = trimmed === (row.utmLabel ?? "").trim();
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    const res = await setCreativeUtmLabel(projectId, row.id, trimmed);
+    setSaving(false);
+    if (res.error) setError(res.error);
+    else setSaved(true);
+  }
+
+  return (
+    <section className="rounded-[12px] border border-line bg-canvas/60 px-3.5 py-3">
+      <h3 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-faint">
+        UTM-метка креатива
+      </h3>
+      <p className="mt-1 text-[11.5px] leading-relaxed text-faint">
+        Задайте метку и поставьте её в ссылку объявления — по ней система свяжет
+        заявку и чек именно с этим креативом.
+      </p>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={label}
+          onChange={(event) => {
+            setLabel(event.target.value);
+            setSaved(false);
+            setError(null);
+          }}
+          placeholder="например, osen_video1"
+          className="h-9 flex-1 rounded-[9px] border border-line bg-surface px-3 text-[13px] text-ink outline-none focus:border-brand-200"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving || unchanged}
+          className="h-9 shrink-0 rounded-[9px] bg-brand px-3 text-[13px] font-medium text-white transition hover:opacity-90 disabled:opacity-40"
+        >
+          {saving ? "…" : "Сохранить"}
+        </button>
+      </div>
+      {trimmed ? (
+        <p className="mt-2 rounded-[8px] bg-surface px-2.5 py-1.5 text-[11.5px] text-muted">
+          В ссылку объявления: <span className="tabular text-ink">utm_content={trimmed}</span>
+        </p>
+      ) : null}
+      {error ? <p className="mt-1.5 text-[11.5px] text-negative">{error}</p> : null}
+      {saved && !error ? (
+        <p className="mt-1.5 text-[11.5px] text-brand-700">Метка сохранена.</p>
+      ) : null}
+    </section>
+  );
+}
+
 export function CreativeDetailsButton({
   row,
   projectId,
@@ -207,6 +274,8 @@ export function CreativeDetailsButton({
               <p className="rounded-[10px] bg-brand-50 px-3 py-2 text-[12.5px] leading-relaxed text-brand-700">
                 {meta.advice}
               </p>
+
+              <UtmLabelBlock row={row} projectId={projectId} />
 
               <section>
                 <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.06em] text-faint">
