@@ -4,10 +4,49 @@ import { cache } from "react";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createdAtBounds, type DateRange } from "@/lib/date-range";
-import { EMPTY_SALARY_RULE, isPaidStatus, type SalaryInputs, type SalaryRule } from "@/lib/hr";
+import {
+  ALWAYS_ON_STATUS,
+  ATTENDANCE_STATUSES,
+  isAttendanceStatus,
+  EMPTY_SALARY_RULE,
+  isPaidStatus,
+  type AttendanceStatus,
+  type SalaryInputs,
+  type SalaryRule,
+} from "@/lib/hr";
 import type { Tables } from "@/lib/database.types";
 
 /** Запросы блока «Финансы и HR» (ТЗ, Блок 5). Всё ограничено RLS проекта. */
+
+/**
+ * Префикс ключа для режимов табеля в project_sections. Держим набор статусов там,
+ * рядом с прочими тумблерами проекта, чтобы не заводить отдельную колонку. Это не
+ * раздел меню: ключи `attn.*` не совпадают с настоящими разделами и на навигацию
+ * не влияют.
+ */
+export const ATTENDANCE_MODE_PREFIX = "attn.";
+
+/**
+ * Включённые режимы табеля проекта. Строк нет — используются все статусы. Есть —
+ * включён «present» плюс те, что помечены enabled. Возвращаем в каноническом порядке.
+ */
+export async function loadAttendanceModes(projectId: string): Promise<AttendanceStatus[]> {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("project_sections")
+    .select("section_key, enabled")
+    .eq("project_id", projectId)
+    .like("section_key", `${ATTENDANCE_MODE_PREFIX}%`);
+
+  if (!data || data.length === 0) return [...ATTENDANCE_STATUSES];
+
+  const enabled = new Set<AttendanceStatus>([ALWAYS_ON_STATUS]);
+  for (const row of data) {
+    const status = row.section_key.slice(ATTENDANCE_MODE_PREFIX.length);
+    if (row.enabled && isAttendanceStatus(status)) enabled.add(status);
+  }
+  return ATTENDANCE_STATUSES.filter((status) => enabled.has(status));
+}
 
 export const loadAttendance = cache(
   async (projectId: string, range: DateRange): Promise<Tables<"attendance">[]> => {

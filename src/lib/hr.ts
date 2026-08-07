@@ -48,6 +48,14 @@ export function isAttendanceStatus(value: string): value is AttendanceStatus {
   return (ATTENDANCE_STATUSES as readonly string[]).includes(value);
 }
 
+/** «На месте» — это и есть отметка о приходе, поэтому доступен всегда. */
+export const ALWAYS_ON_STATUS: AttendanceStatus = "present";
+
+/** Необязательные режимы табеля — их проект включает по желанию. */
+export const OPTIONAL_ATTENDANCE_STATUSES: readonly AttendanceStatus[] = ATTENDANCE_STATUSES.filter(
+  (status) => status !== ALWAYS_ON_STATUS,
+);
+
 export function isPaidStatus(status: string): boolean {
   return isAttendanceStatus(status) && PAID_STATUSES.includes(status);
 }

@@ -10,7 +10,6 @@ import { formatDateRange, formatNumber, formatPercent } from "@/lib/format";
 import {
   ATTENDANCE_LABELS,
   ATTENDANCE_SHORT,
-  ATTENDANCE_STATUSES,
   isAttendanceStatus,
   isPaidStatus,
   WEEKDAY_SHORT,
@@ -18,9 +17,10 @@ import {
 } from "@/lib/hr";
 import { sectionBlockTitle } from "@/lib/navigation";
 import { loadMembers } from "@/lib/queries/crm";
-import { loadAttendance } from "@/lib/queries/hr";
+import { loadAttendance, loadAttendanceModes } from "@/lib/queries/hr";
 
 import { OfficeLocationForm } from "./office-form";
+import { AttendanceModesForm } from "./modes-form";
 
 /** Сколько дней помещается в табель: дальше он превращается в бесконечную ленту. */
 const MAX_DAYS = 31;
@@ -36,10 +36,11 @@ export default async function AttendancePage({
   const { projectId } = await params;
   const range = readDateRange(await searchParams);
 
-  const [{ project, role, canManage }, members, attendance] = await Promise.all([
+  const [{ project, role, canManage }, members, attendance, enabledStatuses] = await Promise.all([
     requireSectionAccess(projectId, "attendance"),
     loadMembers(projectId),
     loadAttendance(projectId, range),
+    loadAttendanceModes(projectId),
   ]);
 
   const mayMark = canManage || role === "director" || role === "rop";
@@ -182,6 +183,7 @@ export default async function AttendancePage({
                         userId={member.userId}
                         date={day}
                         status={marks.get(`${member.userId}:${day}`) ?? null}
+                        statuses={enabledStatuses}
                         employeeName={member.fullName}
                         disabled={!mayMark}
                       />
@@ -195,7 +197,7 @@ export default async function AttendancePage({
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 px-1 text-[12px] text-faint">
-        {ATTENDANCE_STATUSES.map((status) => (
+        {enabledStatuses.map((status) => (
           <span key={status} className="flex items-center gap-2">
             <Badge tone="muted">{ATTENDANCE_SHORT[status]}</Badge>
             {ATTENDANCE_LABELS[status]}
@@ -203,6 +205,12 @@ export default async function AttendancePage({
         ))}
         {mayMark ? <span>Клик по клетке переключает статус по кругу.</span> : null}
       </div>
+
+      {maySetOffice ? (
+        <div className="mt-5">
+          <AttendanceModesForm projectId={projectId} enabled={enabledStatuses} />
+        </div>
+      ) : null}
     </main>
   );
 }

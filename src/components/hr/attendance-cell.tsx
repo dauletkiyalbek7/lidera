@@ -1,12 +1,16 @@
 import { markAttendance } from "@/lib/actions/hr";
-import { ATTENDANCE_SHORT, ATTENDANCE_STATUSES, ATTENDANCE_LABELS, type AttendanceStatus } from "@/lib/hr";
+import { ATTENDANCE_SHORT, ATTENDANCE_LABELS, type AttendanceStatus } from "@/lib/hr";
 import { cn } from "@/lib/cn";
 
-/** По клику отметка переходит к следующему статусу и возвращается к началу круга. */
-function nextStatus(current: AttendanceStatus | null): AttendanceStatus {
-  if (!current) return ATTENDANCE_STATUSES[0];
-  const index = ATTENDANCE_STATUSES.indexOf(current);
-  return ATTENDANCE_STATUSES[(index + 1) % ATTENDANCE_STATUSES.length];
+/** По клику отметка переходит к следующему включённому статусу и возвращается к началу круга. */
+function nextStatus(
+  current: AttendanceStatus | null,
+  statuses: readonly AttendanceStatus[],
+): AttendanceStatus {
+  if (!current) return statuses[0];
+  const index = statuses.indexOf(current);
+  if (index === -1) return statuses[0];
+  return statuses[(index + 1) % statuses.length];
 }
 
 const CELL_TONE: Record<AttendanceStatus, string> = {
@@ -27,6 +31,7 @@ export function AttendanceCell({
   userId,
   date,
   status,
+  statuses,
   employeeName,
   disabled,
 }: {
@@ -34,6 +39,8 @@ export function AttendanceCell({
   userId: string;
   date: string;
   status: AttendanceStatus | null;
+  /** Включённые на проекте режимы — по ним идёт перебор по кругу. */
+  statuses: readonly AttendanceStatus[];
   employeeName: string;
   disabled: boolean;
 }) {
@@ -44,7 +51,7 @@ export function AttendanceCell({
       <input type="hidden" name="project_id" value={projectId} />
       <input type="hidden" name="user_id" value={userId} />
       <input type="hidden" name="date" value={date} />
-      <input type="hidden" name="status" value={nextStatus(status)} />
+      <input type="hidden" name="status" value={nextStatus(status, statuses)} />
 
       <button
         type="submit"
