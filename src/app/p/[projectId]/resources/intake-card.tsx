@@ -115,6 +115,34 @@ export function IntakeCard({
           чего-то одного.
         </p>
       </div>
+
+      <div className="mt-4 border-t border-line pt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
+          Подключение Tilda
+        </p>
+        <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] leading-relaxed text-muted">
+          <li>
+            В форме Tilda откройте «Сервисы» → «Webhook» и вставьте адрес (метод POST):
+            <p className="tabular mt-1 break-all rounded-[10px] bg-canvas px-3 py-2 text-[12px] text-ink">
+              {endpoint}?token={token ?? "ВАШ_ТОКЕН"}
+            </p>
+          </li>
+          <li>
+            В настройках формы включите передачу UTM-меток (cookies/UTM), чтобы приходил{" "}
+            <code className="text-[12px] text-ink">utm_content</code> — по нему заявка свяжется
+            с креативом.
+          </li>
+          <li>
+            В рекламной ссылке кампании поставьте{" "}
+            <code className="text-[12px] text-ink">utm_content=&#123;&#123;ad.id&#125;&#125;</code>{" "}
+            (или свою UTM-метку креатива) — тогда Tilda передаст её в заявке.
+          </li>
+        </ol>
+        <p className="mt-2 text-[12px] text-faint">
+          Tilda шлёт форму, а не JSON — приём это понимает. Тест-подключение из Tilda
+          проходит без создания лида.
+        </p>
+      </div>
     </section>
   );
 }

@@ -45,15 +45,28 @@ export async function POST(request: NextRequest) {
     return json(413, { error: "Слишком большое тело запроса." });
   }
 
+  // Сайты шлют по-разному: наш пример — JSON, а Tilda и обычные формы —
+  // application/x-www-form-urlencoded. Принимаем оба, чтобы не терять заявки.
+  const contentType = (request.headers.get("content-type") ?? "").toLowerCase();
   let body: unknown;
-  try {
-    body = raw ? JSON.parse(raw) : {};
-  } catch {
-    return json(400, { error: "Тело запроса не разобралось как JSON." });
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    body = Object.fromEntries(new URLSearchParams(raw));
+  } else {
+    try {
+      body = raw ? JSON.parse(raw) : {};
+    } catch {
+      // Форму прислали без заголовка типа — пробуем разобрать как форму.
+      body = Object.fromEntries(new URLSearchParams(raw));
+    }
   }
 
   const parsed = parseIntakePayload(body);
   if (!parsed.ok) {
+    // Tilda при подключении вебхука шлёт тест-пинг (поле test) без имени и
+    // телефона — отвечаем ок, чтобы Tilda приняла адрес, но лид не заводим.
+    if (body && typeof body === "object" && "test" in (body as Record<string, unknown>)) {
+      return json(200, { ok: true, test: true });
+    }
     return json(400, { error: parsed.error });
   }
 
