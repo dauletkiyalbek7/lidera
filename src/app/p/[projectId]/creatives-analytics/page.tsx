@@ -21,7 +21,6 @@ import { sectionBlockTitle } from "@/lib/navigation";
 import { loadCreativesAnalytics, type CreativeRow } from "@/lib/queries/creatives";
 
 import { CreativeDetailsButton } from "./creative-details";
-import { AddCreativeButton } from "./add-creative";
 
 /**
  * Аналитика креативов: связка креатив → лид → продажа (ТЗ, Блок 3).
@@ -325,15 +324,12 @@ export default async function CreativesAnalyticsPage({
         title="Аналитика креативов"
         subtitle={`Только курсы · ${formatDateRange(range.from, range.to)}`}
         actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {mayManage ? <AddCreativeButton projectId={projectId} /> : null}
-            <DateRangePicker
-              preset={range.preset}
-              from={range.from}
-              to={range.to}
-              label={range.label}
-            />
-          </div>
+          <DateRangePicker
+            preset={range.preset}
+            from={range.from}
+            to={range.to}
+            label={range.label}
+          />
         }
       />
 

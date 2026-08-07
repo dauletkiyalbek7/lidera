@@ -79,54 +79,6 @@ export async function setCreativeUtmLabel(
   return { error: null };
 }
 
-export type CreateCreativeState = { message: string | null; error: string | null };
-
-/** Площадки, которые понимает воронка; иначе — без площадки. */
-const KNOWN_PLATFORMS = new Set(["meta", "tiktok"]);
-
-/**
- * Ручное заведение креатива (ТЗ, Блок 3).
- * Нужно, когда рекламу ведём до синка с Meta или вообще мимо него (WhatsApp,
- * оффлайн): владелец заранее заводит креатив с UTM-меткой, ставит метку в
- * ссылку/текст объявления — и вся привязка «креатив → лид → чек» работает, не
- * дожидаясь синхронизации. external_id нет — синк такие строки не трогает.
- */
-export async function createCreative(
-  _prev: CreateCreativeState,
-  formData: FormData,
-): Promise<CreateCreativeState> {
-  const projectId = String(formData.get("project_id") ?? "");
-  const name = String(formData.get("name") ?? "").trim();
-  const rawPlatform = String(formData.get("platform") ?? "").trim().toLowerCase();
-  const label = String(formData.get("utm_label") ?? "").trim().slice(0, MAX_UTM_LABEL);
-
-  const { role, canManage } = await requireProjectContext(projectId);
-  if (!mayManageAds(role, canManage)) {
-    return { message: null, error: "Заводить креативы может владелец или директор." };
-  }
-  if (!name) {
-    return { message: null, error: "Укажите название креатива." };
-  }
-
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("creatives").insert({
-    project_id: projectId,
-    name,
-    platform: KNOWN_PLATFORMS.has(rawPlatform) ? rawPlatform : null,
-    utm_label: label || null,
-  });
-
-  if (error) {
-    if (error.code === "23505") {
-      return { message: null, error: "Такая UTM-метка уже занята другим креативом." };
-    }
-    return { message: null, error: "Не удалось создать креатив." };
-  }
-
-  revalidatePath(`/p/${projectId}/creatives-analytics`);
-  return { message: "Креатив создан.", error: null };
-}
-
 export async function syncMetaAds(
   _prevState: AdsSyncState,
   formData: FormData,
