@@ -141,6 +141,24 @@ export async function loadCustomers(projectId: string): Promise<Tables<"customer
   return data ?? [];
 }
 
+/** Название и метка креатива по id — чтобы в списке лидов показать, откуда пришёл лид. */
+export async function loadCreativeLabels(
+  projectId: string,
+  ids: string[],
+): Promise<Map<string, { name: string; label: string | null }>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("creatives")
+    .select("id, name, utm_label")
+    .eq("project_id", projectId)
+    .in("id", unique);
+
+  return new Map((data ?? []).map((row) => [row.id, { name: row.name, label: row.utm_label }]));
+}
+
 export type CreativeOption = { id: string; label: string; name: string };
 
 /**

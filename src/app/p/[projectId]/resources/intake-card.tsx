@@ -18,7 +18,7 @@ function SubmitButton({ hasToken }: { hasToken: boolean }) {
   );
 }
 
-/** Приём заявок с сайта: адрес, токен и готовый пример запроса. */
+/** Приём заявок с сайта: токен и короткая статистика. Инструкции убраны — лишнее. */
 export function IntakeCard({
   projectId,
   endpoint,
@@ -37,25 +37,16 @@ export function IntakeCard({
   const [state, formAction] = useActionState(issueIntakeToken, INITIAL_STATE);
   const token = state.token;
 
-  const example = `curl -X POST ${endpoint} \\
-  -H "Authorization: Bearer ${token ?? "ВАШ_ТОКЕН"}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"Алия","phone":"+77011234567","utm_source":"meta","utm_content":"Видео · отзыв ученика"}'`;
-
   return (
     <section className="card mt-4 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
           <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-brand-50 text-brand">
             <Icon name="send" className="h-5 w-5" />
           </span>
           <div>
             <h2 className="text-[14px] font-semibold text-ink">Приём заявок с сайта</h2>
-            <p className="mt-1 max-w-[720px] text-[13px] leading-relaxed text-muted">
-              Один адрес для сайта, лендинга и Tilda. Заявка сразу попадает в «Лиды», а метка
-              креатива из <code className="text-[12px] text-ink">utm_content</code> связывает её
-              с объявлением — на этом и строится сквозная аналитика.
-            </p>
+            <p className="tabular mt-0.5 text-[12px] text-faint">{endpoint}</p>
           </div>
         </div>
 
@@ -101,48 +92,6 @@ export function IntakeCard({
           {state.error}
         </p>
       ) : null}
-
-      <div className="mt-4 border-t border-line pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-          Как отправлять
-        </p>
-        <pre className="tabular mt-2 overflow-x-auto rounded-[12px] bg-canvas p-3.5 text-[11.5px] leading-relaxed text-muted">
-          {example}
-        </pre>
-        <p className="mt-2 text-[12px] text-faint">
-          Имя принимается как <code>name</code>, <code>full_name</code> или{" "}
-          <code>имя</code>; телефон — <code>phone</code> или <code>tel</code>. Достаточно
-          чего-то одного.
-        </p>
-      </div>
-
-      <div className="mt-4 border-t border-line pt-4">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-          Подключение Tilda
-        </p>
-        <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] leading-relaxed text-muted">
-          <li>
-            В форме Tilda откройте «Сервисы» → «Webhook» и вставьте адрес (метод POST):
-            <p className="tabular mt-1 break-all rounded-[10px] bg-canvas px-3 py-2 text-[12px] text-ink">
-              {endpoint}?token={token ?? "ВАШ_ТОКЕН"}
-            </p>
-          </li>
-          <li>
-            В настройках формы включите передачу UTM-меток (cookies/UTM), чтобы приходил{" "}
-            <code className="text-[12px] text-ink">utm_content</code> — по нему заявка свяжется
-            с креативом.
-          </li>
-          <li>
-            В рекламной ссылке кампании поставьте{" "}
-            <code className="text-[12px] text-ink">utm_content=&#123;&#123;ad.id&#125;&#125;</code>{" "}
-            (или свою UTM-метку креатива) — тогда Tilda передаст её в заявке.
-          </li>
-        </ol>
-        <p className="mt-2 text-[12px] text-faint">
-          Tilda шлёт форму, а не JSON — приём это понимает. Тест-подключение из Tilda
-          проходит без создания лида.
-        </p>
-      </div>
     </section>
   );
 }

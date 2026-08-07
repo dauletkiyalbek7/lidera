@@ -15,7 +15,7 @@ import {
   formatNumber,
   formatPercent,
 } from "@/lib/format";
-import { loadCreativeOptions, loadLeads, loadMembers } from "@/lib/queries/crm";
+import { loadCreativeLabels, loadCreativeOptions, loadLeads, loadMembers } from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
 import { LeadOps } from "./lead-ops";
@@ -43,6 +43,12 @@ export default async function LeadsPage({
     ]);
 
   const memberNames = new Map(members.map((member) => [member.userId, member.fullName]));
+
+  // Названия креативов для лидов — чтобы показать, с какого объявления пришёл лид.
+  const creativeLabels = await loadCreativeLabels(
+    projectId,
+    leads.map((lead) => lead.creative_id).filter((id): id is string => Boolean(id)),
+  );
 
   // Раздача касается только образования: там есть менеджеры и очередь лидов.
   const mayDistribute = canManage || role === "director" || role === "rop";
@@ -129,6 +135,23 @@ export default async function LeadsPage({
       header: "Источник",
       hideOnMobile: true,
       render: (lead) => <span className="text-muted">{leadSourceLabel(lead.source)}</span>,
+    },
+    {
+      key: "creative",
+      header: "Креатив",
+      hideOnMobile: true,
+      render: (lead) => {
+        const creative = lead.creative_id ? creativeLabels.get(lead.creative_id) : null;
+        if (!creative) return <span className="text-faint">—</span>;
+        return (
+          <div className="flex flex-col">
+            <span className="text-ink">{creative.label ?? creative.name}</span>
+            {creative.label && creative.name !== creative.label ? (
+              <span className="text-[11px] text-faint">{creative.name}</span>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       key: "status",
