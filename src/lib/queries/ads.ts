@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { DateRange } from "@/lib/date-range";
 import { campaignPurpose, type CampaignPurpose } from "@/lib/ads/purpose";
 
@@ -140,26 +141,42 @@ export async function loadAdsData(
   const supabase = await createSupabaseServerClient();
   const onlySpending = options.onlySpending ?? true;
 
-  const [campaignsResult, setsResult, creativesResult] = await Promise.all([
-    supabase
-      .from("ad_campaigns")
-      .select("*")
-      .eq("project_id", projectId)
-      .eq("platform", "meta"),
-    supabase.from("ad_sets").select("*").eq("project_id", projectId).eq("platform", "meta"),
+  // Страницами: объявлений и групп кабинета тысячи — за лимитом в 1000 строк
+  // список объявлений и итоги молча теряли бы часть.
+  const [campaigns, sets, creativesRaw] = await Promise.all([
+    fetchAllRows((from, to) =>
+      supabase
+        .from("ad_campaigns")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("platform", "meta")
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("ad_sets")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("platform", "meta")
+        .order("id")
+        .range(from, to),
+    ),
     level === "ads"
-      ? supabase
-          .from("creatives")
-          .select("id, name, status, preview_url, campaign_id, ad_set_id")
-          .eq("project_id", projectId)
-          .eq("platform", "meta")
-          .not("external_id", "is", null)
-      : Promise.resolve({ data: [] as never[] }),
+      ? fetchAllRows((from, to) =>
+          supabase
+            .from("creatives")
+            .select("id, name, status, preview_url, campaign_id, ad_set_id")
+            .eq("project_id", projectId)
+            .eq("platform", "meta")
+            .not("external_id", "is", null)
+            .order("id")
+            .range(from, to),
+        )
+      : Promise.resolve([]),
   ]);
 
-  const campaigns = campaignsResult.data ?? [];
-  const sets = setsResult.data ?? [];
-  const creatives = (creativesResult.data ?? []) as {
+  const creatives = creativesRaw as {
     id: string;
     name: string;
     status: string | null;
@@ -191,9 +208,11 @@ export async function loadAdsData(
     }),
   );
 
-  const dateFilter = <T extends { gte: (c: string, v: string) => T; lte: (c: string, v: string) => T }>(
+  const applyDate = <
+    T extends { gte: (c: string, v: string) => T; lte: (c: string, v: string) => T },
+  >(
     query: T,
-  ) => {
+  ): T => {
     let next = query;
     if (range.from) next = next.gte("date", range.from);
     if (range.to) next = next.lte("date", range.to);
@@ -201,35 +220,47 @@ export async function loadAdsData(
   };
 
   // Итог по проекту всегда считаем по кампаниям: складывать уровни нельзя,
-  // расход удвоится.
-  const campaignInsights = await dateFilter(
-    supabase
-      .from("ad_insights_daily")
-      .select("campaign_id, spend, spend_source, impressions, reach, clicks, leads")
-      .eq("project_id", projectId),
+  // расход удвоится. Инсайты тоже читаем страницами (растут по дням).
+  const campaignInsights = await fetchAllRows((from, to) =>
+    applyDate(
+      supabase
+        .from("ad_insights_daily")
+        .select("campaign_id, spend, spend_source, impressions, reach, clicks, leads")
+        .eq("project_id", projectId),
+    )
+      .order("id")
+      .range(from, to),
   );
 
   const byCampaign = foldInsights(
-    (campaignInsights.data ?? []).map((row) => ({ ...row, key: row.campaign_id })),
+    campaignInsights.map((row) => ({ ...row, key: row.campaign_id })),
   );
 
   let byRow = byCampaign;
   if (level === "adsets") {
-    const setInsights = await dateFilter(
-      supabase
-        .from("ad_set_insights_daily")
-        .select("ad_set_id, spend, spend_source, impressions, reach, clicks, leads")
-        .eq("project_id", projectId),
+    const setInsights = await fetchAllRows((from, to) =>
+      applyDate(
+        supabase
+          .from("ad_set_insights_daily")
+          .select("ad_set_id, spend, spend_source, impressions, reach, clicks, leads")
+          .eq("project_id", projectId),
+      )
+        .order("id")
+        .range(from, to),
     );
-    byRow = foldInsights((setInsights.data ?? []).map((row) => ({ ...row, key: row.ad_set_id })));
+    byRow = foldInsights(setInsights.map((row) => ({ ...row, key: row.ad_set_id })));
   } else if (level === "ads") {
-    const adInsights = await dateFilter(
-      supabase
-        .from("ad_creative_insights_daily")
-        .select("creative_id, spend, spend_source, impressions, reach, clicks, leads")
-        .eq("project_id", projectId),
+    const adInsights = await fetchAllRows((from, to) =>
+      applyDate(
+        supabase
+          .from("ad_creative_insights_daily")
+          .select("creative_id, spend, spend_source, impressions, reach, clicks, leads")
+          .eq("project_id", projectId),
+      )
+        .order("id")
+        .range(from, to),
     );
-    byRow = foldInsights((adInsights.data ?? []).map((row) => ({ ...row, key: row.creative_id })));
+    byRow = foldInsights(adInsights.map((row) => ({ ...row, key: row.creative_id })));
   }
 
   const build = (): AdRow[] => {

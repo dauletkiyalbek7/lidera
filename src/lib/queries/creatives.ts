@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { createdAtBounds, type DateRange } from "@/lib/date-range";
 import { campaignPurpose, type CampaignPurpose } from "@/lib/ads/purpose";
 import {
@@ -75,44 +76,57 @@ export async function loadCreativesAnalytics(
   const onlyActive = options.onlyActive ?? true;
   const cplLimit = options.cplLimit;
 
-  let leadsQuery = supabase
-    .from("leads")
-    .select("creative_id, status")
-    .eq("project_id", projectId);
-  if (since) leadsQuery = leadsQuery.gte("created_at", since);
-  if (until) leadsQuery = leadsQuery.lt("created_at", until);
-
-  let salesQuery = supabase
-    .from("sales")
-    .select("creative_id, amount")
-    .eq("project_id", projectId);
-  if (since) salesQuery = salesQuery.gte("created_at", since);
-  if (until) salesQuery = salesQuery.lt("created_at", until);
-
-  let insightsQuery = supabase
-    .from("ad_creative_insights_daily")
-    .select("creative_id, spend, spend_source, impressions, clicks, leads")
-    .eq("project_id", projectId);
-  if (range.from) insightsQuery = insightsQuery.gte("date", range.from);
-  if (range.to) insightsQuery = insightsQuery.lte("date", range.to);
-
-  const [creativesResult, campaignsResult, setsResult, leadsResult, salesResult, insightsResult] =
-    await Promise.all([
+  // Всё читаем страницами: объявлений кабинета тысячи, за лимитом в 1000 строк
+  // расход и продажи по креативам молча занижались бы.
+  const [creativeRows, campaigns, sets, leadRows, saleRows, insightRows] = await Promise.all([
+    fetchAllRows((from, to) =>
       supabase
         .from("creatives")
         .select(
           "id, name, platform, status, preview_url, thumbnail_url, media_type, campaign_id, ad_set_id, utm_label",
         )
-        .eq("project_id", projectId),
-      supabase.from("ad_campaigns").select("id, name, currency").eq("project_id", projectId),
-      supabase.from("ad_sets").select("id, name, campaign_id").eq("project_id", projectId),
-      leadsQuery,
-      salesQuery,
-      insightsQuery,
-    ]);
-
-  const campaigns = campaignsResult.data ?? [];
-  const sets = setsResult.data ?? [];
+        .eq("project_id", projectId)
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("ad_campaigns")
+        .select("id, name, currency")
+        .eq("project_id", projectId)
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("ad_sets")
+        .select("id, name, campaign_id")
+        .eq("project_id", projectId)
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) => {
+      let q = supabase.from("leads").select("creative_id, status").eq("project_id", projectId);
+      if (since) q = q.gte("created_at", since);
+      if (until) q = q.lt("created_at", until);
+      return q.order("id").range(from, to);
+    }),
+    fetchAllRows((from, to) => {
+      let q = supabase.from("sales").select("creative_id, amount").eq("project_id", projectId);
+      if (since) q = q.gte("created_at", since);
+      if (until) q = q.lt("created_at", until);
+      return q.order("id").range(from, to);
+    }),
+    fetchAllRows((from, to) => {
+      let q = supabase
+        .from("ad_creative_insights_daily")
+        .select("creative_id, spend, spend_source, impressions, clicks, leads")
+        .eq("project_id", projectId);
+      if (range.from) q = q.gte("date", range.from);
+      if (range.to) q = q.lte("date", range.to);
+      return q.order("id").range(from, to);
+    }),
+  ]);
 
   const campaignById = new Map(campaigns.map((row) => [row.id, row] as const));
   const setById = new Map(sets.map((row) => [row.id, row] as const));
@@ -136,7 +150,7 @@ export async function loadCreativesAnalytics(
   );
 
   const adStats = new Map<string, CreativeAdStats>();
-  for (const row of insightsResult.data ?? []) {
+  for (const row of insightRows) {
     const current = adStats.get(row.creative_id) ?? { ...EMPTY_AD_STATS };
     current.spend += Number(row.spend);
     current.spendSource += Number(row.spend_source);
@@ -150,7 +164,7 @@ export async function loadCreativesAnalytics(
   let attributedLeads = 0;
   let totalLeads = 0;
 
-  for (const lead of leadsResult.data ?? []) {
+  for (const lead of leadRows) {
     totalLeads += 1;
     if (!lead.creative_id) continue;
     attributedLeads += 1;
@@ -160,7 +174,7 @@ export async function loadCreativesAnalytics(
     crmStats.set(lead.creative_id, current);
   }
 
-  for (const sale of salesResult.data ?? []) {
+  for (const sale of saleRows) {
     if (!sale.creative_id) continue;
     const current = crmStats.get(sale.creative_id) ?? { ...EMPTY_CRM_STATS };
     current.sales += 1;
@@ -168,7 +182,7 @@ export async function loadCreativesAnalytics(
     crmStats.set(sale.creative_id, current);
   }
 
-  const all: CreativeRow[] = (creativesResult.data ?? []).map((creative) => {
+  const all: CreativeRow[] = creativeRows.map((creative) => {
     const ads = adStats.get(creative.id) ?? EMPTY_AD_STATS;
     const crm = crmStats.get(creative.id) ?? EMPTY_CRM_STATS;
 
