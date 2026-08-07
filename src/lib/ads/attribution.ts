@@ -35,10 +35,14 @@ export type CreativePerformance = CreativeAdStats &
     conversion: number | null;
     /** Доход на вложенный в этот креатив тенге. */
     roas: number | null;
+    /** ROMI — окупаемость маркетинга: (выручка − расход) / расход. */
+    romi: number | null;
     /** Выручка минус расход на этот креатив. */
     profit: number;
     /** Кликабельность. */
     ctr: number | null;
+    /** Цена клика. */
+    cpc: number | null;
     /**
      * Расхождение между лидами кабинета и лидами CRM.
      * Кабинет считает заявки, CRM — тех, кто дошёл; разница показывает потери.
@@ -79,8 +83,10 @@ export function derivePerformance(
     qualityRate: divide(crm.qualified, crm.leads),
     conversion: divide(crm.sales, crm.leads),
     roas: divide(crm.revenue, ads.spend),
+    romi: divide(crm.revenue - ads.spend, ads.spend),
     profit: crm.revenue - ads.spend,
     ctr: divide(ads.clicks, ads.impressions),
+    cpc: divide(ads.spend, ads.clicks),
     reachedCrm: divide(crm.leads, ads.platformLeads),
   };
 }

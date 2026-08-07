@@ -20,6 +20,8 @@ import {
 import { sectionBlockTitle } from "@/lib/navigation";
 import { loadCreativesAnalytics, type CreativeRow } from "@/lib/queries/creatives";
 
+import { CreativeDetailsButton } from "./creative-details";
+
 /**
  * Аналитика креативов: связка креатив → лид → продажа (ТЗ, Блок 3).
  *
@@ -117,6 +119,7 @@ export default async function CreativesAnalyticsPage({
   const mayManage = canManage || role === "director";
   const needsRate = Boolean(sourceCurrency && sourceCurrency !== currency);
   const adCurrency = sourceCurrency ?? currency;
+  const detailMoney = { adCurrency, currency, needsRate, rate };
 
   /** Раздел говорит в валюте кабинета; тенге — подписью снизу. */
   const money = (source: number) => formatAdMoney(source, adCurrency);
@@ -304,6 +307,14 @@ export default async function CreativesAnalyticsPage({
         </div>
       ),
     },
+    {
+      key: "details",
+      header: "",
+      align: "right",
+      render: (row) => (
+        <CreativeDetailsButton row={row} projectId={projectId} money={detailMoney} />
+      ),
+    },
   ];
 
   return (
@@ -466,6 +477,10 @@ export default async function CreativesAnalyticsPage({
                         </dd>
                       </div>
                     </dl>
+
+                    <div className="mt-3">
+                      <CreativeDetailsButton row={row} projectId={projectId} money={detailMoney} />
+                    </div>
                   </div>
                 </article>
               );

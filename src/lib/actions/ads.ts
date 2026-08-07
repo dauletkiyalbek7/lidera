@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireProjectContext } from "@/lib/auth";
+import { requireProjectContext, requireSectionAccess } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { readIntegrationCredentials } from "@/lib/queries/integrations";
 import { runMetaSync, type AdsSyncResult } from "@/lib/ads/sync";
+import { loadCreativeInsightFromMeta, type CreativeInsight } from "@/lib/ads/creative-insight";
 
 export type AdsSyncState = AdsSyncResult;
 
@@ -13,6 +14,28 @@ const MAX_RATE = 100_000;
 
 function mayManageAds(role: string, canManage: boolean): boolean {
   return canManage || role === "director";
+}
+
+/**
+ * Детали креатива для панели: ссылка на видео и метрики удержания из Meta.
+ * Тянем по запросу при открытии панели — в списке это не нужно и дорого.
+ */
+export async function fetchCreativeInsight(
+  projectId: string,
+  creativeId: string,
+): Promise<CreativeInsight | null> {
+  await requireSectionAccess(projectId, "creatives-analytics");
+
+  const supabase = await createSupabaseServerClient();
+  const { data: creative } = await supabase
+    .from("creatives")
+    .select("external_id")
+    .eq("project_id", projectId)
+    .eq("id", creativeId)
+    .maybeSingle();
+
+  if (!creative?.external_id) return null;
+  return loadCreativeInsightFromMeta(projectId, creative.external_id);
 }
 
 /**
