@@ -113,6 +113,36 @@ export async function bookTrial(
 type Admin = SupabaseClient<Database>;
 
 /**
+ * Привязка продажи к креативу — сердце сквозной аналитики (креатив → лид →
+ * продажа). Креатив у лида уже стоит с момента клика (referral из Meta или
+ * utm_content с лендинга). Здесь только наследуем его на продажу:
+ *   1) прямая связь — креатив самого лида, если он есть;
+ *   2) по номеру телефона — самый свежий лид клиента, у которого креатив
+ *      проставлен. Это и есть «система по номеру сама понимает, от какого
+ *      объявления клиент»: номер находит лид, а лид несёт креатив.
+ * В номере телефона креатива нет — он лишь ключ связи, не источник.
+ */
+async function inheritCreativeId(
+  admin: Admin,
+  projectId: string,
+  lead: { creative_id: string | null; phone: string | null },
+): Promise<string | null> {
+  if (lead.creative_id) return lead.creative_id;
+  if (!lead.phone) return null;
+
+  const { data: byPhone } = await admin
+    .from("leads")
+    .select("creative_id")
+    .eq("project_id", projectId)
+    .eq("phone", lead.phone)
+    .not("creative_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  return byPhone?.[0]?.creative_id ?? null;
+}
+
+/**
  * Клиент купившего лида: связываем продажу с клиентом и копим LTV (total_spent).
  * Ищем по телефону в рамках проекта; нет — заводим нового. Уникального ключа на
  * телефон нет, поэтому берём первого совпавшего, а не maybeSingle (не падаем на дублях).
@@ -188,7 +218,7 @@ export async function markCourseSold(
   const admin = createSupabaseAdminClient();
   const { data: lead } = await admin
     .from("leads")
-    .select("id, full_name, phone, status, salesperson_id, assigned_to")
+    .select("id, full_name, phone, status, salesperson_id, assigned_to, creative_id")
     .eq("id", leadId)
     .eq("project_id", projectId)
     .maybeSingle();
@@ -208,6 +238,8 @@ export async function markCourseSold(
 
   const sellerId = lead.salesperson_id ?? user.id;
   const customerId = await upsertCustomer(admin, projectId, lead.full_name, lead.phone, amount);
+  // Продажа наследует креатив лида — иначе выручка не дойдёт до аналитики креативов.
+  const creativeId = await inheritCreativeId(admin, projectId, lead);
 
   const { error: saleError } = await admin.from("sales").insert({
     project_id: projectId,
@@ -216,6 +248,7 @@ export async function markCourseSold(
     seller_id: sellerId,
     product,
     amount,
+    creative_id: creativeId,
     receipt_status: "awaiting",
   });
   if (saleError) {
