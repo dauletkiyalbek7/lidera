@@ -99,6 +99,53 @@ export async function createLead(
 }
 
 /**
+ * Перетаскивание лида между этапами на CRM-воронке (канбан).
+ * Право у руководителей (владелец/директор/РОП). Пишем сервисным ключом —
+ * у роли может не быть своей RLS-политики на запись, право проверяем в коде.
+ * Меняет только статус: настоящие пробные/продажи создаются своими экранами.
+ */
+export async function moveLeadStage(
+  projectId: string,
+  leadId: string,
+  status: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const { niche, role, canManage, user } = await requireProjectContext(projectId);
+  const maySupervise = canManage || role === "director" || role === "rop";
+  if (!maySupervise) return { ok: false, error: "Перемещать лиды может руководитель." };
+  if (!LEAD_STATUS_FLOW[niche].includes(status)) return { ok: false, error: "Неизвестный этап." };
+  if (!hasServiceRoleKey()) return { ok: false, error: "Нет ключа для записи." };
+
+  const admin = createSupabaseAdminClient();
+  const { data: updated, error } = await admin
+    .from("leads")
+    .update({ status })
+    .eq("id", leadId)
+    .eq("project_id", projectId)
+    .select("full_name, assigned_to")
+    .single();
+
+  if (error || !updated) return { ok: false, error: "Не удалось переместить лид." };
+
+  await admin.from("activity_log").insert({
+    project_id: projectId,
+    actor_id: user.id,
+    action: "lead.status_changed",
+    details: { lead_id: leadId, status, via: "funnel" },
+  });
+
+  if (status === "sale") {
+    await notifyLeadWon(admin, projectId, {
+      fullName: updated.full_name,
+      assignedTo: updated.assigned_to,
+    });
+  }
+
+  revalidatePath(`/p/${projectId}/crm-funnel`);
+  revalidatePath(`/p/${projectId}/leads`);
+  return { ok: true };
+}
+
+/**
  * Смена этапа лида. Пока доступна владельцу проекта:
  * точечные права менеджера и продажника добавим вместе с правами доступа (Этап 5).
  */
