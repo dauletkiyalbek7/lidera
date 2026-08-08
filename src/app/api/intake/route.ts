@@ -132,21 +132,27 @@ export async function POST(request: NextRequest) {
     if (found) {
       creativeId = found.id;
     } else {
-      // Синк отстал: заводим с числовым id объявления как external_id, чтобы
-      // следующий синк слил строку и дополнил её видео и расходом.
-      const numericId = externalCandidates.find((value) => /^[0-9]+$/.test(value)) ?? null;
-      const { data: created } = await admin
-        .from("creatives")
-        .insert({
-          project_id: projectId,
-          name: label ?? (numericId as string),
-          utm_label: label,
-          external_id: numericId ?? payload.creativeExternalId,
-          platform: payload.platform,
-        })
-        .select("id")
-        .maybeSingle();
-      creativeId = created?.id ?? null;
+      // Заглушку заводим только под настоящий id объявления Meta — это длинный
+      // числовой {{ad.id}} (17+ цифр). Тестовые и короткие метки (banner, 3333,
+      // id кампании) пустышки не плодят: лид просто останется без креатива, пока
+      // не придёт нормальный id. Следующий синк дольёт заглушке видео и расход.
+      const adId = externalCandidates.find((value) => /^[0-9]{15,}$/.test(value)) ?? null;
+      if (adId) {
+        // Числовой id — не читаемая метка: utm_label оставляем только для слов.
+        const readableLabel = label && !/^[0-9]+$/.test(label) ? label : null;
+        const { data: created } = await admin
+          .from("creatives")
+          .insert({
+            project_id: projectId,
+            name: label ?? adId,
+            utm_label: readableLabel,
+            external_id: adId,
+            platform: payload.platform,
+          })
+          .select("id")
+          .maybeSingle();
+        creativeId = created?.id ?? null;
+      }
     }
   }
 
