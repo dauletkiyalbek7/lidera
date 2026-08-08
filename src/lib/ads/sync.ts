@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { startOfPreviousMonth, today } from "@/lib/date-range";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { Database } from "@/lib/database.types";
 import type { IntegrationCredentials } from "@/lib/queries/integrations";
 import {
@@ -109,13 +110,18 @@ export async function runMetaSync({
   }
 
   // Статистика ссылается на кампании по внутреннему id, поэтому читаем их обратно.
-  const { data: stored } = await supabase
-    .from("ad_campaigns")
-    .select("id, external_id")
-    .eq("project_id", projectId)
-    .eq("platform", "meta");
+  // Страницами: за лимитом в 1000 карта неполная и часть статистики теряется.
+  const stored = await fetchAllRows((from, to) =>
+    supabase
+      .from("ad_campaigns")
+      .select("id, external_id")
+      .eq("project_id", projectId)
+      .eq("platform", "meta")
+      .order("id")
+      .range(from, to),
+  );
 
-  const idByExternal = new Map((stored ?? []).map((row) => [row.external_id, row.id]));
+  const idByExternal = new Map(stored.map((row) => [row.external_id, row.id]));
 
   const rows = insights
     .filter((row) => idByExternal.has(row.campaignId))
@@ -168,13 +174,17 @@ export async function runMetaSync({
       return { error: `Не удалось сохранить группы объявлений: ${error.message}`, message: null };
     }
 
-    const { data: storedSets } = await supabase
-      .from("ad_sets")
-      .select("id, external_id")
-      .eq("project_id", projectId)
-      .eq("platform", "meta");
+    const storedSets = await fetchAllRows((from, to) =>
+      supabase
+        .from("ad_sets")
+        .select("id, external_id")
+        .eq("project_id", projectId)
+        .eq("platform", "meta")
+        .order("id")
+        .range(from, to),
+    );
 
-    for (const row of storedSets ?? []) setIdByExternal.set(row.external_id, row.id);
+    for (const row of storedSets) setIdByExternal.set(row.external_id, row.id);
   }
 
   if (setIdByExternal.size > 0 && adSetInsights.length > 0) {
@@ -238,14 +248,20 @@ export async function runMetaSync({
   }
 
   if (creativesSaved > 0 && adInsights.length > 0) {
-    const { data: storedCreatives } = await supabase
-      .from("creatives")
-      .select("id, external_id")
-      .eq("project_id", projectId)
-      .eq("platform", "meta");
+    // Страницами: объявлений тысячи. За лимитом в 1000 карта была неполной, и
+    // дневная статистика для остальных креативов молча не сохранялась.
+    const storedCreatives = await fetchAllRows((from, to) =>
+      supabase
+        .from("creatives")
+        .select("id, external_id")
+        .eq("project_id", projectId)
+        .eq("platform", "meta")
+        .order("id")
+        .range(from, to),
+    );
 
     const creativeByExternal = new Map(
-      (storedCreatives ?? []).map((row) => [row.external_id, row.id]),
+      storedCreatives.map((row) => [row.external_id, row.id]),
     );
 
     const creativeRows = adInsights
