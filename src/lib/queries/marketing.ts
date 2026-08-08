@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { createdAtBounds, type DateRange } from "@/lib/date-range";
 import { LEAD_SOURCE_LABELS } from "@/lib/domain";
 import type { Tables } from "@/lib/database.types";
@@ -65,74 +66,75 @@ export async function loadMarketingData(
   const supabase = await createSupabaseServerClient();
   const { since, until } = createdAtBounds(range);
 
-  let leadsQuery = supabase
-    .from("leads")
-    .select("status, source, creative_id")
-    .eq("project_id", projectId);
-  if (since) leadsQuery = leadsQuery.gte("created_at", since);
-  if (until) leadsQuery = leadsQuery.lt("created_at", until);
-  if (filters.source) leadsQuery = leadsQuery.eq("source", filters.source);
-  if (filters.creativeId) leadsQuery = leadsQuery.eq("creative_id", filters.creativeId);
+  // Всё читаем страницами: объявлений тысячи, лиды/инсайты растут — за лимитом
+  // в 1000 строк итоги и топы молча занижались бы. Расход берём из ad_insights_daily,
+  // чтобы Marketing Dashboard сходился с честной Главной.
+  const [leadRows, saleRows, spendRows, creativeSpendRows, sourceLeadRows, creativeRows, funnelRows] =
+    await Promise.all([
+      fetchAllRows((from, to) => {
+        let q = supabase
+          .from("leads")
+          .select("status, source, creative_id")
+          .eq("project_id", projectId);
+        if (since) q = q.gte("created_at", since);
+        if (until) q = q.lt("created_at", until);
+        if (filters.source) q = q.eq("source", filters.source);
+        if (filters.creativeId) q = q.eq("creative_id", filters.creativeId);
+        return q.order("id").range(from, to);
+      }),
+      fetchAllRows((from, to) => {
+        let q = supabase
+          .from("sales")
+          .select("amount, creative_id, lead_id")
+          .eq("project_id", projectId);
+        if (since) q = q.gte("created_at", since);
+        if (until) q = q.lt("created_at", until);
+        if (filters.creativeId) q = q.eq("creative_id", filters.creativeId);
+        return q.order("id").range(from, to);
+      }),
+      fetchAllRows((from, to) => {
+        let q = supabase.from("ad_insights_daily").select("spend").eq("project_id", projectId);
+        if (range.from) q = q.gte("date", range.from);
+        if (range.to) q = q.lte("date", range.to);
+        return q.order("id").range(from, to);
+      }),
+      fetchAllRows((from, to) => {
+        let q = supabase
+          .from("ad_creative_insights_daily")
+          .select("creative_id, spend")
+          .eq("project_id", projectId);
+        if (range.from) q = q.gte("date", range.from);
+        if (range.to) q = q.lte("date", range.to);
+        return q.order("id").range(from, to);
+      }),
+      // Для среза по источнику нужны лиды всех продаж: у продажи источника нет,
+      // он есть только у её лида.
+      fetchAllRows((from, to) => {
+        let q = supabase.from("leads").select("id, source").eq("project_id", projectId);
+        if (since) q = q.gte("created_at", since);
+        if (until) q = q.lt("created_at", until);
+        return q.order("id").range(from, to);
+      }),
+      fetchAllRows((from, to) =>
+        supabase
+          .from("creatives")
+          .select("id, name")
+          .eq("project_id", projectId)
+          .order("id")
+          .range(from, to),
+      ),
+      fetchAllRows((from, to) =>
+        supabase
+          .from("saved_funnels")
+          .select("*")
+          .eq("project_id", projectId)
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      ),
+    ]);
 
-  let salesQuery = supabase
-    .from("sales")
-    .select("amount, creative_id, lead_id")
-    .eq("project_id", projectId);
-  if (since) salesQuery = salesQuery.gte("created_at", since);
-  if (until) salesQuery = salesQuery.lt("created_at", until);
-  if (filters.creativeId) salesQuery = salesQuery.eq("creative_id", filters.creativeId);
-
-  let metricsQuery = supabase
-    .from("metrics_daily")
-    .select("ad_spend")
-    .eq("project_id", projectId);
-  if (range.from) metricsQuery = metricsQuery.gte("date", range.from);
-  if (range.to) metricsQuery = metricsQuery.lte("date", range.to);
-
-  let creativeSpendQuery = supabase
-    .from("ad_creative_insights_daily")
-    .select("creative_id, spend")
-    .eq("project_id", projectId);
-  if (range.from) creativeSpendQuery = creativeSpendQuery.gte("date", range.from);
-  if (range.to) creativeSpendQuery = creativeSpendQuery.lte("date", range.to);
-
-  // Для среза по источнику нужны лиды всех продаж: у продажи источника нет,
-  // он есть только у её лида.
-  let sourceLeadsQuery = supabase
-    .from("leads")
-    .select("id, source")
-    .eq("project_id", projectId);
-  if (since) sourceLeadsQuery = sourceLeadsQuery.gte("created_at", since);
-  if (until) sourceLeadsQuery = sourceLeadsQuery.lt("created_at", until);
-
-  const [
-    leadsResult,
-    salesResult,
-    metricsResult,
-    creativeSpendResult,
-    sourceLeadsResult,
-    creativesResult,
-    funnelsResult,
-  ] = await Promise.all([
-    leadsQuery,
-    salesQuery,
-    metricsQuery,
-    creativeSpendQuery,
-    sourceLeadsQuery,
-    supabase
-      .from("creatives")
-      .select("id, name")
-      .eq("project_id", projectId)
-      .order("name", { ascending: true }),
-    supabase
-      .from("saved_funnels")
-      .select("*")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: true }),
-  ]);
-
-  const leadRows = leadsResult.data ?? [];
-  const saleRows = salesResult.data ?? [];
+  // Список креативов для фильтра — по алфавиту (пагинация шла по id).
+  const creatives = [...creativeRows].sort((a, b) => a.name.localeCompare(b.name));
 
   const leads = leadRows.length;
   const qualified = leadRows.filter((row) => row.status !== "new").length;
@@ -141,12 +143,9 @@ export async function loadMarketingData(
 
   // Расход честно относится к срезу только в двух случаях: срез по всему проекту
   // или срез по конкретному креативу. По источникам реклама расход не разделяет.
-  const totalSpend = (metricsResult.data ?? []).reduce(
-    (sum, row) => sum + Number(row.ad_spend),
-    0,
-  );
+  const totalSpend = spendRows.reduce((sum, row) => sum + Number(row.spend), 0);
   const spendByCreative = new Map<string, number>();
-  for (const row of creativeSpendResult.data ?? []) {
+  for (const row of creativeSpendRows) {
     spendByCreative.set(
       row.creative_id,
       (spendByCreative.get(row.creative_id) ?? 0) + Number(row.spend),
@@ -166,7 +165,7 @@ export async function loadMarketingData(
 
   // Срез по источникам: продажи привязываем к источнику через лид.
   const sourceByLead = new Map(
-    (sourceLeadsResult.data ?? []).map((row) => [row.id, row.source ?? "other"]),
+    sourceLeadRows.map((row) => [row.id, row.source ?? "other"]),
   );
 
   const sourceStats = new Map<string, SourceRow>();
@@ -205,9 +204,7 @@ export async function loadMarketingData(
     .sort((a, b) => b.revenue - a.revenue || b.leads - a.leads);
 
   // Топ креативов внутри среза.
-  const creativeNames = new Map(
-    (creativesResult.data ?? []).map((row) => [row.id, row.name]),
-  );
+  const creativeNames = new Map(creativeRows.map((row) => [row.id, row.name]));
   const creativeStats = new Map<string, CreativeSlice>();
   const ensureCreative = (id: string): CreativeSlice => {
     const existing = creativeStats.get(id);
@@ -252,7 +249,7 @@ export async function loadMarketingData(
     roas: spend === null ? null : divide(revenue, spend),
     bySource,
     topCreatives,
-    funnels: funnelsResult.data ?? [],
-    creatives: creativesResult.data ?? [],
+    funnels: funnelRows,
+    creatives,
   };
 }
