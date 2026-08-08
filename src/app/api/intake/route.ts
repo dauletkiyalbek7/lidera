@@ -86,30 +86,36 @@ export async function POST(request: NextRequest) {
   const { payload } = parsed;
   const projectId = intake.project_id;
 
-  // Креатив ищем по UTM-метке (её владелец задаёт сам на креативе и ставит в
-  // ссылку объявления как utm_content), затем по id объявления, затем по имени.
-  // Метка — главный путь: она стабильна и не зависит от имени объявления в Meta.
-  // Не нашли — заводим: новое объявление не должно терять свои заявки.
+  // Ищем настоящее объявление из синка. Главное: utm_content={{ad.id}} — это и
+  // есть external_id объявления кабинета, поэтому его (и запасной id из ссылки)
+  // сверяем в первую очередь с external_id — иначе создавали бы двойник без видео
+  // и расхода. Затем — ручная UTM-метка, затем имя. Не нашли — заводим.
   let creativeId: string | null = null;
   const label = payload.creativeName?.trim() || null;
-  if (label || payload.creativeExternalId) {
+  // utm_content ({{ad.id}}) первым: по нашей инструкции это id объявления.
+  const externalCandidates = [label, payload.creativeExternalId].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  if (label || externalCandidates.length > 0) {
     let found: { id: string } | null = null;
 
-    if (label) {
+    for (const ext of externalCandidates) {
+      if (found) break;
+      const { data } = await admin
+        .from("creatives")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("external_id", ext)
+        .maybeSingle();
+      found = data ?? null;
+    }
+    if (!found && label) {
       const { data } = await admin
         .from("creatives")
         .select("id")
         .eq("project_id", projectId)
         .ilike("utm_label", label)
-        .maybeSingle();
-      found = data ?? null;
-    }
-    if (!found && payload.creativeExternalId) {
-      const { data } = await admin
-        .from("creatives")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("external_id", payload.creativeExternalId)
         .maybeSingle();
       found = data ?? null;
     }
@@ -126,15 +132,16 @@ export async function POST(request: NextRequest) {
     if (found) {
       creativeId = found.id;
     } else {
-      // Метка встретилась раньше синка: заводим креатив с меткой и id, что пришло,
-      // — синхронизация Meta потом дополнит его именем и картинкой.
+      // Синк отстал: заводим с числовым id объявления как external_id, чтобы
+      // следующий синк слил строку и дополнил её видео и расходом.
+      const numericId = externalCandidates.find((value) => /^[0-9]+$/.test(value)) ?? null;
       const { data: created } = await admin
         .from("creatives")
         .insert({
           project_id: projectId,
-          name: label ?? (payload.creativeExternalId as string),
+          name: label ?? (numericId as string),
           utm_label: label,
-          external_id: payload.creativeExternalId,
+          external_id: numericId ?? payload.creativeExternalId,
           platform: payload.platform,
         })
         .select("id")
