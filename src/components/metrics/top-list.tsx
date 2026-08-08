@@ -1,5 +1,7 @@
+import { Avatar } from "@/components/ui/avatar";
 import { CardSection } from "@/components/ui/card-section";
 import type { IconName } from "@/components/ui/icon";
+import { cn } from "@/lib/cn";
 
 export type TopEntry = {
   id: string;
@@ -7,6 +9,13 @@ export type TopEntry = {
   primary: string;
   secondary: string;
 };
+
+/** Медали для тройки лидеров; остальные — нейтральный ранг. */
+const MEDAL = [
+  "bg-amber-100 text-amber-700 ring-amber-200",
+  "bg-slate-200 text-slate-600 ring-slate-300",
+  "bg-orange-100 text-orange-700 ring-orange-200",
+] as const;
 
 /** Топ сотрудников: менеджеры и продажники (ТЗ, раздел 6.1). */
 export function TopList({
@@ -35,8 +44,16 @@ export function TopList({
               key={entry.id}
               className="flex items-center gap-3 border-b border-line py-3 last:border-b-0 last:pb-0"
             >
-              <span className="tabular inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-canvas text-[12px] font-semibold text-muted">
-                {index + 1}
+              <span className="relative shrink-0">
+                <Avatar name={entry.name} size="lg" />
+                <span
+                  className={cn(
+                    "tabular absolute -bottom-1 -right-1 grid h-[18px] w-[18px] place-items-center rounded-full text-[10px] font-bold ring-2 ring-surface",
+                    index < 3 ? MEDAL[index] : "bg-canvas text-muted",
+                  )}
+                >
+                  {index + 1}
+                </span>
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13.5px] font-medium text-ink">

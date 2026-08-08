@@ -2,7 +2,9 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/layout/page-header";
 import { sectionBlockTitle } from "@/lib/navigation";
 import { MetricCard } from "@/components/metrics/metric-card";
+import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Icon } from "@/components/ui/icon";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
@@ -111,18 +113,28 @@ export default async function SalesPage({
       key: "product",
       header: "Продукт",
       render: (sale) => (
-        <span className="font-medium text-ink">{sale.product ?? "Без названия"}</span>
+        <div className="flex items-center gap-3">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[10px] bg-brand-50 text-brand-700">
+            <Icon name="sales" className="h-4 w-4" />
+          </span>
+          <span className="truncate font-medium text-ink">{sale.product ?? "Без названия"}</span>
+        </div>
       ),
     },
     {
       key: "seller",
       header: niche === "education" ? "Продажник" : "Менеджер",
       hideOnMobile: true,
-      render: (sale) => (
-        <span className="text-muted">
-          {sale.seller_id ? (memberNames.get(sale.seller_id) ?? "Сотрудник") : "—"}
-        </span>
-      ),
+      render: (sale) => {
+        const name = sale.seller_id ? (memberNames.get(sale.seller_id) ?? "Сотрудник") : null;
+        if (!name) return <span className="text-faint">—</span>;
+        return (
+          <div className="flex items-center gap-2.5">
+            <Avatar name={name} size="sm" />
+            <span className="truncate text-muted">{name}</span>
+          </div>
+        );
+      },
     },
     {
       key: "created",
