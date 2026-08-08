@@ -97,6 +97,7 @@ export default async function CreativesAnalyticsPage({
     to?: string;
     status?: string;
     all?: string;
+    focus?: string;
   }>;
 }) {
   const { projectId } = await params;
@@ -104,6 +105,8 @@ export default async function CreativesAnalyticsPage({
   const range = readDateRange(query);
   const statusFilter = readStatus(query.status);
   const onlyActive = query.all !== "1";
+  // По ссылке из «Лидов» открываем панель этого креатива сразу.
+  const focusId = query.focus ?? null;
 
   const { project, role, canManage } = await requireSectionAccess(
     projectId,
@@ -312,7 +315,12 @@ export default async function CreativesAnalyticsPage({
       header: "",
       align: "right",
       render: (row) => (
-        <CreativeDetailsButton row={row} projectId={projectId} money={detailMoney} />
+        <CreativeDetailsButton
+          row={row}
+          projectId={projectId}
+          money={detailMoney}
+          autoOpen={row.id === focusId}
+        />
       ),
     },
   ];

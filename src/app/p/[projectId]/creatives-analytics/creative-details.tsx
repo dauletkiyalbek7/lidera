@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { fetchCreativeInsight, setCreativeUtmLabel } from "@/lib/actions/ads";
 import type { CreativeInsight } from "@/lib/ads/creative-insight";
@@ -195,10 +195,13 @@ export function CreativeDetailsButton({
   row,
   projectId,
   money,
+  autoOpen = false,
 }: {
   row: CreativeRow;
   projectId: string;
   money: Money;
+  /** Открыть панель сразу — для перехода по ссылке «метка креатива» из «Лидов». */
+  autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [insight, setInsight] = useState<CreativeInsight | null>(null);
@@ -225,6 +228,12 @@ export function CreativeDetailsButton({
       }
     }
   }
+
+  // Переход из «Лидов» по метке креатива открывает панель сразу.
+  useEffect(() => {
+    if (autoOpen) void openPanel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen]);
 
   return (
     <>

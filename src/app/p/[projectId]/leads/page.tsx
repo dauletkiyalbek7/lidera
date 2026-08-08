@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { DateRangePicker } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/layout/page-header";
 import { sectionBlockTitle } from "@/lib/navigation";
@@ -144,12 +146,18 @@ export default async function LeadsPage({
         const creative = lead.creative_id ? creativeLabels.get(lead.creative_id) : null;
         if (!creative) return <span className="text-faint">—</span>;
         return (
-          <div className="flex flex-col">
-            <span className="text-ink">{creative.label ?? creative.name}</span>
+          <Link
+            href={`/p/${projectId}/creatives-analytics?focus=${lead.creative_id}`}
+            className="group flex flex-col"
+            title="Открыть аналитику креатива"
+          >
+            <span className="text-brand-700 transition group-hover:text-brand">
+              {creative.label ?? creative.name}
+            </span>
             {creative.label && creative.name !== creative.label ? (
               <span className="text-[11px] text-faint">{creative.name}</span>
             ) : null}
-          </div>
+          </Link>
         );
       },
     },
