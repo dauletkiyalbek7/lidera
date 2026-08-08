@@ -2,6 +2,8 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { PageHeader } from "@/components/layout/page-header";
 import { sectionBlockTitle } from "@/lib/navigation";
 import { StatStrip } from "@/components/metrics/stat-strip";
+import { Avatar } from "@/components/ui/avatar";
+import { Icon } from "@/components/ui/icon";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
@@ -80,6 +82,15 @@ export default async function CustomersPage({
   const periodRevenue = rows.reduce((sum, row) => sum + row.periodAmount, 0);
   const totalLtv = customers.reduce((sum, customer) => sum + Number(customer.total_spent), 0);
 
+  // Топ-покупатели по LTV — им отдельный акцент на аватаре, чтобы VIP было видно сразу.
+  const vipIds = new Set(
+    [...rows]
+      .filter((row) => row.ltv > 0)
+      .sort((a, b) => b.ltv - a.ltv)
+      .slice(0, 3)
+      .map((row) => row.id),
+  );
+
   const stats = [
     {
       key: "period",
@@ -109,12 +120,30 @@ export default async function CustomersPage({
     {
       key: "name",
       header: "Клиент",
-      render: (row) => (
-        <div className="flex flex-col">
-          <span className="font-medium text-ink">{row.fullName}</span>
-          <span className="text-[11.5px] text-faint">{row.phone ?? "телефон не указан"}</span>
-        </div>
-      ),
+      render: (row) => {
+        const vip = vipIds.has(row.id);
+        return (
+          <div className="flex items-center gap-3">
+            <Avatar
+              name={row.fullName}
+              soft={vip ? "bg-amber-50" : "bg-brand-50"}
+              text={vip ? "text-amber-700" : "text-brand-700"}
+              ring={vip ? "ring-2 ring-amber-200" : undefined}
+            />
+            <div className="flex min-w-0 flex-col">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate font-medium text-ink">{row.fullName}</span>
+                {vip ? (
+                  <Icon name="sparkle" className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                ) : null}
+              </span>
+              <span className="tabular text-[11.5px] text-faint">
+                {row.phone ?? "телефон не указан"}
+              </span>
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: "products",

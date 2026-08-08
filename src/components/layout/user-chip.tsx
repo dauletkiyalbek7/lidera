@@ -1,15 +1,8 @@
 import { signOut } from "@/lib/actions/auth";
 import { ROLE_LABELS, type GlobalRole } from "@/lib/domain";
 import { Icon } from "@/components/ui/icon";
+import { initials } from "@/lib/avatar";
 import { cn } from "@/lib/cn";
-
-function initials(fullName: string): string {
-  return fullName
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
 
 /** Пользователь и выход. Кнопка выхода — серверное действие, без клиентского JS. */
 export function UserChip({

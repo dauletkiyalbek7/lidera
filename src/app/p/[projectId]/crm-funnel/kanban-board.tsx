@@ -4,8 +4,10 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { moveLeadStage } from "@/lib/actions/leads";
+import { Avatar } from "@/components/ui/avatar";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/cn";
+import { stageOf } from "@/lib/crm-stage";
 import { leadSourceLabel, leadStatusLabel } from "@/lib/domain";
 import { formatDateShort, formatNumber, formatPercent } from "@/lib/format";
 
@@ -25,46 +27,6 @@ export type KanbanLead = {
   /** Имя ответственного сотрудника — показываем на карточке. */
   assignedName: string | null;
 };
-
-/** Инициалы для аватара: одна-две первые буквы имени. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-type Stage = {
-  /** Точка/акцент этапа. */
-  dot: string;
-  /** Верхняя полоса колонки. */
-  bar: string;
-  /** Мягкий фон шапки. */
-  soft: string;
-  /** Левый акцент карточки. */
-  edge: string;
-  text: string;
-};
-
-/** Палитра этапов: от «холодного» новичка к «зелёной» продаже. */
-const STAGE: Record<string, Stage> = {
-  new: { dot: "bg-slate-400", bar: "bg-slate-300", soft: "bg-slate-50", edge: "border-l-slate-300", text: "text-slate-600" },
-  qualified: { dot: "bg-sky-500", bar: "bg-sky-400", soft: "bg-sky-50", edge: "border-l-sky-400", text: "text-sky-700" },
-  processed: { dot: "bg-sky-500", bar: "bg-sky-400", soft: "bg-sky-50", edge: "border-l-sky-400", text: "text-sky-700" },
-  trial_booked: { dot: "bg-amber-500", bar: "bg-amber-400", soft: "bg-amber-50", edge: "border-l-amber-400", text: "text-amber-700" },
-  trial_done: { dot: "bg-violet-500", bar: "bg-violet-400", soft: "bg-violet-50", edge: "border-l-violet-400", text: "text-violet-700" },
-  sale: { dot: "bg-emerald-500", bar: "bg-emerald-400", soft: "bg-emerald-50", edge: "border-l-emerald-400", text: "text-emerald-700" },
-};
-
-const FALLBACK: Stage = {
-  dot: "bg-slate-400",
-  bar: "bg-slate-300",
-  soft: "bg-slate-50",
-  edge: "border-l-slate-300",
-  text: "text-slate-600",
-};
-
-const stageOf = (status: string): Stage => STAGE[status] ?? FALLBACK;
 
 export function KanbanBoard({
   projectId,
@@ -184,16 +146,7 @@ export function KanbanBoard({
                     )}
                   >
                     <div className="flex items-start gap-2.5">
-                      <span
-                        className={cn(
-                          "grid h-8 w-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
-                          stage.soft,
-                          stage.text,
-                        )}
-                        aria-hidden="true"
-                      >
-                        {initials(lead.full_name)}
-                      </span>
+                      <Avatar name={lead.full_name} soft={stage.soft} text={stage.text} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13px] font-semibold text-ink">
                           {lead.full_name}

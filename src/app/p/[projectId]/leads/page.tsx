@@ -6,7 +6,9 @@ import { sectionBlockTitle } from "@/lib/navigation";
 import { StatStrip } from "@/components/metrics/stat-strip";
 import { LeadStatusBadge } from "@/components/crm/lead-status-badge";
 import { LeadStatusSelect } from "@/components/crm/lead-status-select";
+import { Avatar } from "@/components/ui/avatar";
 import { DataTable, type Column } from "@/components/ui/data-table";
+import { stageOf } from "@/lib/crm-stage";
 import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
 import { LEAD_STATUS_FLOW, leadSourceLabel } from "@/lib/domain";
@@ -125,12 +127,20 @@ export default async function LeadsPage({
     {
       key: "name",
       header: "Лид",
-      render: (lead) => (
-        <div className="flex flex-col">
-          <span className="font-medium text-ink">{lead.full_name}</span>
-          <span className="text-[11.5px] text-faint">{lead.phone ?? "телефон не указан"}</span>
-        </div>
-      ),
+      render: (lead) => {
+        const stage = stageOf(lead.status);
+        return (
+          <div className="flex items-center gap-3">
+            <Avatar name={lead.full_name} soft={stage.soft} text={stage.text} />
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate font-medium text-ink">{lead.full_name}</span>
+              <span className="tabular text-[11.5px] text-faint">
+                {lead.phone ?? "телефон не указан"}
+              </span>
+            </div>
+          </div>
+        );
+      },
     },
     {
       key: "source",
