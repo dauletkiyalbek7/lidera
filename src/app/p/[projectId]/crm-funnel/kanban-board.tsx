@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
 import { moveLeadStage } from "@/lib/actions/leads";
+import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/cn";
 import { leadSourceLabel, leadStatusLabel } from "@/lib/domain";
 import { formatDateShort, formatNumber, formatPercent } from "@/lib/format";
@@ -21,7 +22,17 @@ export type KanbanLead = {
   source: string | null;
   created_at: string;
   status: string;
+  /** Имя ответственного сотрудника — показываем на карточке. */
+  assignedName: string | null;
 };
+
+/** Инициалы для аватара: одна-две первые буквы имени. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
 
 type Stage = {
   /** Точка/акцент этапа. */
@@ -164,17 +175,51 @@ export function KanbanBoard({
                       setOverStatus(null);
                     }}
                     className={cn(
-                      "rounded-[12px] border border-line border-l-[3px] bg-surface px-3.5 py-3 shadow-[var(--shadow-card)] transition",
+                      "group rounded-[13px] border border-line border-l-[3px] bg-surface p-3 shadow-[var(--shadow-card)] transition",
                       stage.edge,
-                      canEdit ? "cursor-grab active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-[var(--shadow-pop)]" : "",
+                      canEdit
+                        ? "cursor-grab active:cursor-grabbing hover:-translate-y-0.5 hover:border-line hover:shadow-[var(--shadow-pop)]"
+                        : "",
                       dragId === lead.id ? "opacity-40" : "",
                     )}
                   >
-                    <p className="truncate text-[13px] font-medium text-ink">{lead.full_name}</p>
-                    <p className="mt-1 flex items-center justify-between gap-2 text-[11px] text-faint">
-                      <span className="truncate">{leadSourceLabel(lead.source)}</span>
-                      <span className="tabular shrink-0">{formatDateShort(lead.created_at)}</span>
-                    </p>
+                    <div className="flex items-start gap-2.5">
+                      <span
+                        className={cn(
+                          "grid h-8 w-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold",
+                          stage.soft,
+                          stage.text,
+                        )}
+                        aria-hidden="true"
+                      >
+                        {initials(lead.full_name)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-semibold text-ink">
+                          {lead.full_name}
+                        </p>
+                        <p className="tabular mt-0.5 truncate text-[11.5px] text-muted">
+                          {lead.phone ?? "телефон не указан"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-line pt-2">
+                      <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-faint">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted/50" />
+                        <span className="truncate">{leadSourceLabel(lead.source)}</span>
+                      </span>
+                      <span className="tabular shrink-0 text-[11px] text-faint">
+                        {formatDateShort(lead.created_at)}
+                      </span>
+                    </div>
+
+                    {lead.assignedName ? (
+                      <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted">
+                        <Icon name="people" className="h-3 w-3 text-faint" />
+                        <span className="truncate">{lead.assignedName}</span>
+                      </p>
+                    ) : null}
                   </li>
                 ))}
 

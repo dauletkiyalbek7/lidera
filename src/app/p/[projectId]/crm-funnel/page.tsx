@@ -6,7 +6,7 @@ import { requireSectionAccess } from "@/lib/auth";
 import { readDateRange } from "@/lib/date-range";
 import { LEAD_STATUS_FLOW } from "@/lib/domain";
 import { formatDateRange } from "@/lib/format";
-import { loadLeads } from "@/lib/queries/crm";
+import { loadLeads, loadMembers } from "@/lib/queries/crm";
 
 import { KanbanBoard, type KanbanLead } from "./kanban-board";
 
@@ -22,12 +22,14 @@ export default async function CrmFunnelPage({
   const range = readDateRange(await searchParams);
 
   // Контекст проекта и данные раздела независимы — уходят одной параллельной волной.
-  const [{ niche, role, canManage }, leads] = await Promise.all([
+  const [{ niche, role, canManage }, leads, members] = await Promise.all([
     requireSectionAccess(projectId, "crm-funnel"),
     loadLeads(projectId, range),
+    loadMembers(projectId),
   ]);
   const flow = LEAD_STATUS_FLOW[niche];
   const canEdit = canManage || role === "director" || role === "rop";
+  const memberNames = new Map(members.map((member) => [member.userId, member.fullName]));
 
   const cards: KanbanLead[] = leads.map((lead) => ({
     id: lead.id,
@@ -36,6 +38,7 @@ export default async function CrmFunnelPage({
     source: lead.source,
     created_at: lead.created_at,
     status: lead.status,
+    assignedName: lead.assigned_to ? (memberNames.get(lead.assigned_to) ?? null) : null,
   }));
 
   return (
