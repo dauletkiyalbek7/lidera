@@ -13,6 +13,8 @@ const LOCALE = "ru-RU";
  */
 const PROJECT_TZ = "Asia/Almaty";
 const PROJECT_TZ_OFFSET = "+05:00";
+/** То же смещение в часах — для группировки событий по дате проекта. */
+export const PROJECT_TZ_OFFSET_HOURS = 5;
 
 export function formatMoney(
   amount: number,

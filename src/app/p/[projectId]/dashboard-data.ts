@@ -1,7 +1,9 @@
 import "server-only";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { addDays, today, type DateRange, previousRange } from "@/lib/date-range";
+import { PROJECT_TZ_OFFSET_HOURS } from "@/lib/format";
 import {
   applyReturns,
   metricsFromRows,
@@ -26,19 +28,70 @@ function timestampBounds(bounds: Bounds) {
   };
 }
 
+/** Дата события в часовом поясе проекта (Алматы, фиксированный UTC+5). */
+function projectDate(iso: string): string {
+  return new Date(new Date(iso).getTime() + PROJECT_TZ_OFFSET_HOURS * 3_600_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Дни Главной — из реальных данных, а не из metrics_daily.
+ * Лиды и воронка из таблицы leads, продажи и выручка из sales, расход из
+ * ad_insights_daily (уже в валюте проекта). Так Главная сходится с разделами
+ * «Лиды», «Продажи» и «Аналитика», которые читают те же таблицы.
+ */
 async function loadMetricsRows(projectId: string, bounds: Bounds): Promise<MetricsRow[]> {
   const supabase = await createSupabaseServerClient();
-  let query = supabase
-    .from("metrics_daily")
-    .select("date, leads, qualified, trial_lessons, sales, revenue, ad_spend")
-    .eq("project_id", projectId)
-    .order("date", { ascending: true });
+  const { since, until } = timestampBounds(bounds);
 
-  if (bounds.from) query = query.gte("date", bounds.from);
-  if (bounds.to) query = query.lte("date", bounds.to);
+  const [leads, sales, insights] = await Promise.all([
+    fetchAllRows((from, to) => {
+      let q = supabase.from("leads").select("created_at, status").eq("project_id", projectId);
+      if (since) q = q.gte("created_at", since);
+      if (until) q = q.lt("created_at", until);
+      return q.order("id").range(from, to);
+    }),
+    fetchAllRows((from, to) => {
+      let q = supabase.from("sales").select("created_at, amount").eq("project_id", projectId);
+      if (since) q = q.gte("created_at", since);
+      if (until) q = q.lt("created_at", until);
+      return q.order("id").range(from, to);
+    }),
+    fetchAllRows((from, to) => {
+      let q = supabase.from("ad_insights_daily").select("date, spend").eq("project_id", projectId);
+      if (bounds.from) q = q.gte("date", bounds.from);
+      if (bounds.to) q = q.lte("date", bounds.to);
+      return q.order("id").range(from, to);
+    }),
+  ]);
 
-  const { data } = await query;
-  return data ?? [];
+  const byDate = new Map<string, MetricsRow>();
+  const ensure = (date: string): MetricsRow => {
+    let row = byDate.get(date);
+    if (!row) {
+      row = { date, leads: 0, qualified: 0, trial_lessons: 0, sales: 0, revenue: 0, ad_spend: 0 };
+      byDate.set(date, row);
+    }
+    return row;
+  };
+
+  for (const lead of leads) {
+    const row = ensure(projectDate(lead.created_at));
+    row.leads += 1;
+    if (lead.status !== "new") row.qualified += 1;
+    if (TRIAL_STATUSES.includes(lead.status)) row.trial_lessons += 1;
+  }
+  for (const sale of sales) {
+    const row = ensure(projectDate(sale.created_at));
+    row.sales += 1;
+    row.revenue += Number(sale.amount);
+  }
+  for (const insight of insights) {
+    ensure(insight.date).ad_spend += Number(insight.spend);
+  }
+
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** Имена сотрудников берём из состава проекта: он кэширован и запрашивается один раз. */
@@ -166,7 +219,8 @@ export async function loadDashboardData(
     previousRows,
     topManagers,
     topSalespeople,
-    totals,
+    leadsExist,
+    salesExist,
     todayRows,
     products,
     returns,
@@ -176,10 +230,8 @@ export async function loadDashboardData(
     previous ? loadMetricsRows(projectId, previous) : Promise.resolve([]),
     loadTopManagers(projectId, bounds),
     loadTopSalespeople(projectId, bounds),
-    supabase
-      .from("metrics_daily")
-      .select("id", { count: "exact", head: true })
-      .eq("project_id", projectId),
+    supabase.from("leads").select("id", { count: "exact", head: true }).eq("project_id", projectId),
+    supabase.from("sales").select("id", { count: "exact", head: true }).eq("project_id", projectId),
     loadMetricsRows(projectId, { from: currentDay, to: currentDay }),
     loadProducts(projectId),
     loadReturnsTotals(projectId, bounds),
@@ -196,6 +248,7 @@ export async function loadDashboardData(
     topSalespeople,
     today: todayRows[0] ?? null,
     products,
-    hasAnyMetrics: (totals.count ?? 0) > 0,
+    // Есть ли у проекта данные вообще: отличить пустой период от пустого проекта.
+    hasAnyMetrics: (leadsExist.count ?? 0) > 0 || (salesExist.count ?? 0) > 0,
   };
 }
