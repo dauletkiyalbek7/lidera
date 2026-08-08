@@ -962,6 +962,8 @@ export type Database = {
           assigned_to: string | null
           created_at: string
           creative_id: string | null
+          external_id: string | null
+          external_source: string | null
           full_name: string
           id: string
           phone: string | null
@@ -977,6 +979,8 @@ export type Database = {
           assigned_to?: string | null
           created_at?: string
           creative_id?: string | null
+          external_id?: string | null
+          external_source?: string | null
           full_name: string
           id?: string
           phone?: string | null
@@ -992,6 +996,8 @@ export type Database = {
           assigned_to?: string | null
           created_at?: string
           creative_id?: string | null
+          external_id?: string | null
+          external_source?: string | null
           full_name?: string
           id?: string
           phone?: string | null

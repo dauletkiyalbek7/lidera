@@ -13,6 +13,7 @@ import { hasServiceRoleKey } from "@/lib/queries/employees";
 import { loadIntegrations } from "@/lib/queries/integrations";
 
 import { ConnectIntegrationDialog } from "./connect-dialog";
+import { AmoSyncButton } from "./amo-sync-button";
 
 /** Интеграции: что подключено и что нет (ТЗ, Блок 4). Секреты остаются на сервере. */
 export default async function IntegrationsPage({
@@ -130,6 +131,9 @@ export default async function IntegrationsPage({
                     extra={state?.extra ?? null}
                     disabled={!serverReady}
                   />
+                  {connected && provider.key === "amocrm" ? (
+                    <AmoSyncButton projectId={projectId} />
+                  ) : null}
                   {connected ? (
                     <form action={disconnectIntegration}>
                       <input type="hidden" name="project_id" value={projectId} />
