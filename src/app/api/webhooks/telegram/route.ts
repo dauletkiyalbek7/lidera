@@ -13,13 +13,19 @@ import {
 import {
   BOT_ACTIONS,
   botMenu,
+  capiChoiceKeyboard,
+  CAPI_SEND_PREFIX,
+  CAPI_SKIP_PREFIX,
   locationRequestKeyboard,
+  renderAskCapi,
+  renderCapiFailed,
+  renderCapiSent,
+  renderCapiSkipped,
   renderCheckedIn,
   renderMetrics,
   renderNoAwaitingSale,
   renderNotLinked,
   renderOutsideOffice,
-  renderReceiptConfirmed,
   renderReportCancelled,
   renderReportPrompt,
   renderReportSaved,
@@ -34,6 +40,8 @@ import {
   findLinkedAccount,
   loadBotMetrics,
   reportStep,
+  sendSaleCapi,
+  skipSaleCapi,
   startReport,
 } from "@/lib/queries/telegram-bot";
 import { loadOffice, recordCheckIn, recordCheckOut, recordManualShift } from "@/lib/attendance";
@@ -131,6 +139,19 @@ export async function POST(request: NextRequest) {
     if (!account) {
       await send(callback.chatId, renderNotLinked());
       return json(200, { ok: true, linked: false });
+    }
+    // Выбор «слать ли чек в Meta» — продажник решает сам после подтверждения.
+    if (callback.data.startsWith(CAPI_SEND_PREFIX)) {
+      const saleId = callback.data.slice(CAPI_SEND_PREFIX.length);
+      const result = await sendSaleCapi(admin, projectId, saleId, account.userId);
+      await send(callback.chatId, result?.ok ? renderCapiSent() : renderCapiFailed());
+      return json(200, { ok: true, capi: result?.ok ? "sent" : "failed" });
+    }
+    if (callback.data.startsWith(CAPI_SKIP_PREFIX)) {
+      const saleId = callback.data.slice(CAPI_SKIP_PREFIX.length);
+      await skipSaleCapi(admin, projectId, saleId, account.userId);
+      await send(callback.chatId, renderCapiSkipped());
+      return json(200, { ok: true, capi: "skipped" });
     }
     if (callback.data === BOT_ACTIONS.metrics) {
       await showMetrics(callback.chatId, account);
@@ -252,18 +273,22 @@ export async function POST(request: NextRequest) {
     return json(200, { ok: true, checkIn: result.ok });
   }
 
-  /* Вложение — это чек о покупке: привязываем к последней продаже продажника. */
+  /* Вложение — это чек о покупке: привязываем к последней продаже продажника.
+     Подтверждаем чек и спрашиваем, слать ли клиента в рекламу (решает продажник). */
   if (update.attachmentFileId) {
     const [confirmed, currency] = await Promise.all([
       confirmLatestReceipt(admin, projectId, account.userId, update.attachmentFileId),
       projectCurrency(admin, projectId),
     ]);
-    await send(
-      update.chatId,
-      confirmed
-        ? renderReceiptConfirmed(confirmed.product, confirmed.amount, currency)
-        : renderNoAwaitingSale(),
-    );
+    if (confirmed) {
+      await send(
+        update.chatId,
+        renderAskCapi(confirmed.product, confirmed.amount, currency),
+        capiChoiceKeyboard(confirmed.saleId),
+      );
+    } else {
+      await send(update.chatId, renderNoAwaitingSale());
+    }
     return json(200, { ok: true, receipt: Boolean(confirmed) });
   }
 

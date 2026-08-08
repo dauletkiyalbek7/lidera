@@ -19,6 +19,10 @@ export const BOT_ACTIONS = {
   shiftOff: "shift_off",
 } as const;
 
+/** Префиксы кнопок выбора «слать ли чек в Meta»: за ними идёт id продажи. */
+export const CAPI_SEND_PREFIX = "capi_send:";
+export const CAPI_SKIP_PREFIX = "capi_skip:";
+
 export type InlineKeyboard = {
   inline_keyboard: { text: string; callback_data: string }[][];
 };
@@ -152,6 +156,40 @@ export function renderMetrics(metrics: BotMetrics, currency: string): string {
 export function renderReceiptConfirmed(product: string | null, amount: number, currency: string): string {
   const what = product ? `«${product}»` : "курс";
   return `✅ Чек принят. Продажа ${what} на ${formatMoney(amount, currency)} подтверждена.`;
+}
+
+/** После подтверждения чека спрашиваем, слать ли клиента в рекламу. */
+export function renderAskCapi(product: string | null, amount: number, currency: string): string {
+  const what = product ? `«${product}»` : "курс";
+  return (
+    `✅ Чек принят. Продажа ${what} на ${formatMoney(amount, currency)} подтверждена.\n\n` +
+    "Отправить этого клиента в рекламу Meta? Шлите только тёплых и горячих — " +
+    "по ним Meta будет искать похожих. Холодных лучше не отправлять."
+  );
+}
+
+/** Кнопки выбора под конкретную продажу: слать событие в Meta или нет. */
+export function capiChoiceKeyboard(saleId: string): InlineKeyboard {
+  return {
+    inline_keyboard: [
+      [
+        { text: "🔥 Отправить в Meta", callback_data: `${CAPI_SEND_PREFIX}${saleId}` },
+        { text: "❄️ Не отправлять", callback_data: `${CAPI_SKIP_PREFIX}${saleId}` },
+      ],
+    ],
+  };
+}
+
+export function renderCapiSent(): string {
+  return "🔥 Отправлено в Meta. Событие покупки ушло в рекламный кабинет.";
+}
+
+export function renderCapiSkipped(): string {
+  return "❄️ Ок, в рекламу не отправляем. Продажа сохранена без события Meta.";
+}
+
+export function renderCapiFailed(): string {
+  return "⚠️ Не удалось отправить в Meta. Можно повторить позже на странице CAPI в кабинете.";
 }
 
 /** Прислали чек, но продажи, ждущей подтверждения, нет. */

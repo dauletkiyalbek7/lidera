@@ -168,14 +168,14 @@ export async function cancelReport(admin: Admin, projectId: string, userId: stri
   }
 }
 
-export type ConfirmedReceipt = { product: string | null; amount: number };
+export type ConfirmedReceipt = { saleId: string; product: string | null; amount: number };
 
 /**
  * Продажник прислал боту чек: привязываем его к своей последней продаже, ждущей
- * подтверждения, помечаем чек полученным и шлём событие покупки в рекламный
- * кабинет (CAPI). Возвращает продажу или null, если ждущей чек продажи нет (тогда
- * бот так и ответит). CAPI не блокирует подтверждение: не отправилось — просто
- * фиксируем статус, продажа всё равно подтверждена.
+ * подтверждения, и помечаем чек полученным. Событие в Meta (CAPI) отсюда НЕ шлём —
+ * отправку продажник решает сам следующим шагом (кнопка «Отправить в Meta»), потому
+ * что в рекламу нужно отдавать только тёплых/горячих клиентов, а не всех подряд.
+ * Возвращает продажу или null, если ждущей чек продажи нет (тогда бот так и ответит).
  */
 export async function confirmLatestReceipt(
   admin: Admin,
@@ -185,7 +185,7 @@ export async function confirmLatestReceipt(
 ): Promise<ConfirmedReceipt | null> {
   const { data: sale } = await admin
     .from("sales")
-    .select("id, product, amount, customers(phone), leads(phone)")
+    .select("id, product, amount")
     .eq("project_id", projectId)
     .eq("seller_id", userId)
     .eq("receipt_status", "awaiting")
@@ -204,7 +204,29 @@ export async function confirmLatestReceipt(
     })
     .eq("id", sale.id);
 
-  // Событие покупки в Meta CAPI. Атрибуцию Meta делает по хешу телефона.
+  return { saleId: sale.id, product: sale.product, amount: Number(sale.amount) };
+}
+
+/**
+ * Отправка события покупки в Meta по конкретной продаже — по решению продажника
+ * («горячий клиент — шлём»). Читает телефон из клиента/лида, шлёт Purchase и
+ * фиксирует статус. Не бросает: не отправилось — статус failed, продажа не страдает.
+ */
+export async function sendSaleCapi(
+  admin: Admin,
+  projectId: string,
+  saleId: string,
+  actorId: string | null,
+): Promise<{ ok: boolean; product: string | null; amount: number } | null> {
+  const { data: sale } = await admin
+    .from("sales")
+    .select("id, product, amount, customers(phone), leads(phone)")
+    .eq("project_id", projectId)
+    .eq("id", saleId)
+    .maybeSingle();
+
+  if (!sale) return null;
+
   const phone = sale.customers?.phone ?? sale.leads?.phone ?? null;
   const { data: project } = await admin
     .from("projects")
@@ -227,12 +249,33 @@ export async function confirmLatestReceipt(
 
   await admin.from("activity_log").insert({
     project_id: projectId,
-    actor_id: userId,
+    actor_id: actorId,
     action: "sale.capi",
     details: { sale_id: sale.id, status: capi.status, reason: capi.reason },
   });
 
-  return { product: sale.product, amount: Number(sale.amount) };
+  return { ok: capi.status === "sent", product: sale.product, amount: Number(sale.amount) };
+}
+
+/** Продажник решил не отправлять этого клиента в рекламу — помечаем «пропущено». */
+export async function skipSaleCapi(
+  admin: Admin,
+  projectId: string,
+  saleId: string,
+  actorId: string | null,
+): Promise<void> {
+  await admin
+    .from("sales")
+    .update({ capi_status: "skipped", capi_at: new Date().toISOString() })
+    .eq("project_id", projectId)
+    .eq("id", saleId);
+
+  await admin.from("activity_log").insert({
+    project_id: projectId,
+    actor_id: actorId,
+    action: "sale.capi",
+    details: { sale_id: saleId, status: "skipped", reason: "выбрано вручную" },
+  });
 }
 
 export type PeriodCounters = {

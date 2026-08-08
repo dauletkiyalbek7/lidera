@@ -11,6 +11,8 @@ import { readDateRange } from "@/lib/date-range";
 import { formatDateTime, formatDateRange, formatMoney, formatNumber } from "@/lib/format";
 import { loadCapiEvents, loadPixelStatus, type CapiEvent } from "@/lib/queries/capi";
 
+import { CapiActions } from "./capi-actions";
+
 /** Подписи статуса отправки события покупки в Meta. */
 const CAPI_META: Record<string, { label: string; tone: "positive" | "warning" | "negative" | "muted" }> = {
   sent: { label: "Отправлено в Meta", tone: "positive" },
@@ -34,13 +36,16 @@ export default async function CapiPage({
   const { projectId } = await params;
   const range = readDateRange(await searchParams);
 
-  const [{ project }, events, pixel] = await Promise.all([
+  const [{ project, role, canManage }, events, pixel] = await Promise.all([
     requireSectionAccess(projectId, "capi"),
     loadCapiEvents(projectId, range),
     loadPixelStatus(projectId),
   ]);
 
   const currency = project.currency;
+  // Решать отправку могут продажники и руководители — им и показываем кнопки.
+  const mayAct =
+    canManage || ["director", "rop", "manager", "salesperson"].includes(role);
   const sent = events.filter((event) => event.capiStatus === "sent");
   const pending = events.filter((event) => event.capiStatus === "pending");
   const failed = events.filter((event) => event.capiStatus === "failed");
@@ -99,6 +104,7 @@ export default async function CapiPage({
     {
       key: "when",
       header: "Когда",
+      hideOnMobile: true,
       align: "right",
       render: (event) => (
         <span className="tabular text-muted">
@@ -106,6 +112,18 @@ export default async function CapiPage({
         </span>
       ),
     },
+    ...(mayAct
+      ? [
+          {
+            key: "action",
+            header: "Отправка",
+            align: "right" as const,
+            render: (event: CapiEvent) => (
+              <CapiActions projectId={projectId} saleId={event.id} status={event.capiStatus} />
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
