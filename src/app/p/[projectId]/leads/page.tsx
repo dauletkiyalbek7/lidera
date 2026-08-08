@@ -19,12 +19,19 @@ import {
   formatNumber,
   formatPercent,
 } from "@/lib/format";
-import { loadCreativeLabels, loadCreativeOptions, loadLeads, loadMembers } from "@/lib/queries/crm";
+import {
+  loadCreativeLabels,
+  loadCreativeOptions,
+  loadCreativePickerOptions,
+  loadLeads,
+  loadMembers,
+} from "@/lib/queries/crm";
 import type { Tables } from "@/lib/database.types";
 
 import { LeadOps } from "./lead-ops";
 import { BookTrialCell } from "./book-trial";
 import { AddLeadButton } from "./add-lead";
+import { LeadCreativePicker } from "./lead-creative-picker";
 
 /** Лиды: сколько пришло, что с ними стало, кто ответственный (ТЗ, Блок 2). */
 export default async function LeadsPage({
@@ -38,13 +45,19 @@ export default async function LeadsPage({
   const range = readDateRange(await searchParams);
 
   // Контекст проекта и данные раздела независимы — уходят одной параллельной волной.
-  const [{ project, niche, canManage, role, user }, leads, members, creativeOptions] =
-    await Promise.all([
-      requireSectionAccess(projectId, "leads"),
-      loadLeads(projectId, range),
-      loadMembers(projectId),
-      loadCreativeOptions(projectId),
-    ]);
+  const [
+    { project, niche, canManage, role, user },
+    leads,
+    members,
+    creativeOptions,
+    creativePickOptions,
+  ] = await Promise.all([
+    requireSectionAccess(projectId, "leads"),
+    loadLeads(projectId, range),
+    loadMembers(projectId),
+    loadCreativeOptions(projectId),
+    loadCreativePickerOptions(projectId),
+  ]);
 
   const memberNames = new Map(members.map((member) => [member.userId, member.fullName]));
 
@@ -153,6 +166,18 @@ export default async function LeadsPage({
       header: "Креатив",
       hideOnMobile: true,
       render: (lead) => {
+        // Кто может заводить лиды — тому даём выбрать креатив вручную любым списком.
+        if (mayAddLead) {
+          return (
+            <LeadCreativePicker
+              projectId={projectId}
+              leadId={lead.id}
+              currentId={lead.creative_id}
+              currency={project.currency}
+              options={creativePickOptions}
+            />
+          );
+        }
         const creative = lead.creative_id ? creativeLabels.get(lead.creative_id) : null;
         if (!creative) return <span className="text-faint">—</span>;
         return (

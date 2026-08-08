@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { createdAtBounds, type DateRange } from "@/lib/date-range";
 import { asGlobalRole, type GlobalRole } from "@/lib/domain";
 import type { Tables } from "@/lib/database.types";
@@ -178,6 +179,64 @@ export async function loadCreativeOptions(projectId: string): Promise<CreativeOp
   return (data ?? [])
     .filter((row) => row.utm_label && row.utm_label.trim())
     .map((row) => ({ id: row.id, label: row.utm_label as string, name: row.name }));
+}
+
+export type CreativePickOption = {
+  id: string;
+  /** Что показываем в списке: метка, иначе имя объявления. */
+  title: string;
+  /** Подсказка справа — расход, чтобы отличать одинаково названные объявления. */
+  spend: number;
+};
+
+/**
+ * Все значимые креативы для ручного выбора на лиде (без привязки к UTM).
+ * «Значимые» — те, что реально работали (был расход) или помечены/активны:
+ * объявлений в кабинете тысячи, и показывать нулевой мусор в списке незачем.
+ * Сортируем по расходу — сверху те, на что реально тратили деньги.
+ */
+export async function loadCreativePickerOptions(
+  projectId: string,
+): Promise<CreativePickOption[]> {
+  const supabase = await createSupabaseServerClient();
+
+  const [creatives, insights] = await Promise.all([
+    fetchAllRows((from, to) =>
+      supabase
+        .from("creatives")
+        .select("id, name, utm_label, status")
+        .eq("project_id", projectId)
+        .order("id")
+        .range(from, to),
+    ),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("ad_creative_insights_daily")
+        .select("creative_id, spend")
+        .eq("project_id", projectId)
+        .order("id")
+        .range(from, to),
+    ),
+  ]);
+
+  const spendByCreative = new Map<string, number>();
+  for (const row of insights) {
+    const id = row.creative_id as string;
+    spendByCreative.set(id, (spendByCreative.get(id) ?? 0) + Number(row.spend));
+  }
+
+  return creatives
+    .map((row) => ({
+      id: row.id,
+      title: (row.utm_label && row.utm_label.trim()) || row.name,
+      spend: spendByCreative.get(row.id) ?? 0,
+      status: row.status,
+      labeled: Boolean(row.utm_label && row.utm_label.trim()),
+    }))
+    // Оставляем то, что стоит выбирать: с расходом, с меткой или активное.
+    .filter((row) => row.spend > 0 || row.labeled || row.status === "ACTIVE")
+    .sort((a, b) => b.spend - a.spend || a.title.localeCompare(b.title))
+    .map(({ id, title, spend }) => ({ id, title, spend }));
 }
 
 /** Каталог склада. Состояние на сейчас, поэтому диапазон дат его не фильтрует. */

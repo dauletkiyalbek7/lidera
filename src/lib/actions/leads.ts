@@ -146,6 +146,65 @@ export async function moveLeadStage(
 }
 
 /**
+ * Ручной выбор креатива на лиде (ТЗ, Блок 3 — сквозная аналитика).
+ * Автопривязка по UTM не всегда возможна (заявка до подключения, тест, WhatsApp),
+ * поэтому даём выбрать любое объявление руками. Привязку наследует и продажа лида —
+ * иначе выручка не дойдёт до аналитики креативов. Пустой id снимает привязку.
+ */
+export async function setLeadCreative(
+  projectId: string,
+  leadId: string,
+  creativeId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const { role, canManage, user } = await requireProjectContext(projectId);
+  if (!mayCreateLead(role, canManage)) {
+    return { ok: false, error: "Менять привязку креатива может менеджер или руководитель." };
+  }
+  if (!hasServiceRoleKey()) return { ok: false, error: "Нет ключа для записи." };
+
+  const admin = createSupabaseAdminClient();
+  const cleanId = creativeId?.trim() || null;
+
+  // Чужой креатив не привяжем — только объявления этого проекта.
+  if (cleanId) {
+    const { data: creative } = await admin
+      .from("creatives")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("id", cleanId)
+      .maybeSingle();
+    if (!creative) return { ok: false, error: "Выбранный креатив не найден." };
+  }
+
+  const { error } = await admin
+    .from("leads")
+    .update({ creative_id: cleanId })
+    .eq("id", leadId)
+    .eq("project_id", projectId);
+  if (error) return { ok: false, error: "Не удалось сохранить привязку." };
+
+  // Продажи этого лида наследуют выбранный креатив — ради сквозной аналитики.
+  await admin
+    .from("sales")
+    .update({ creative_id: cleanId })
+    .eq("project_id", projectId)
+    .eq("lead_id", leadId);
+
+  await admin.from("activity_log").insert({
+    project_id: projectId,
+    actor_id: user.id,
+    action: "lead.creative_set",
+    details: { lead_id: leadId, creative_id: cleanId },
+  });
+
+  revalidatePath(`/p/${projectId}/leads`);
+  revalidatePath(`/p/${projectId}/crm-funnel`);
+  revalidatePath(`/p/${projectId}/creatives-analytics`);
+  revalidatePath(`/p/${projectId}/sales`);
+  return { ok: true };
+}
+
+/**
  * Смена этапа лида. Пока доступна владельцу проекта:
  * точечные права менеджера и продажника добавим вместе с правами доступа (Этап 5).
  */
