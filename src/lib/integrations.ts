@@ -56,6 +56,18 @@ export const INTEGRATION_PROVIDERS: readonly IntegrationProvider[] = [
     powers: ["Реклама", "Аналитика креативов", "CAPI"],
   },
   {
+    key: "amocrm",
+    title: "amoCRM",
+    summary: "CRM клиента: сделки, контакты и звонки подтягиваются в платформу",
+    icon: "office",
+    secretLabel: "Долгосрочный токен доступа",
+    secretPlaceholder: "eyJ0eXAiOiJKV1QiLCJhbGciOi…",
+    accountLabel: "Адрес аккаунта",
+    accountPlaceholder: "mycompany.amocrm.ru",
+    where: "amoCRM → Настройки → Интеграции → создать интеграцию → «Ключи и доступы» → долгосрочный токен",
+    powers: ["Лиды", "CRM-воронка", "Анализ звонков"],
+  },
+  {
     key: "chatplace",
     title: "ChatPlace",
     summary: "Входящие сообщения чат-бота: оставленный номер сразу становится лидом",

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireProjectContext } from "@/lib/auth";
 import { encryptSecret, hasSecretsKey, secretHint } from "@/lib/crypto";
 import { getIntegrationProvider } from "@/lib/integrations";
+import { normalizeAmoDomain, verifyAmoCrmAccess } from "@/lib/amocrm";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
@@ -57,7 +58,7 @@ export async function connectIntegration(
     return { error: `Укажите ${provider.secretLabel.toLowerCase()} целиком.`, saved: false };
   }
 
-  const account = String(formData.get("account") ?? "")
+  let account = String(formData.get("account") ?? "")
     .trim()
     .slice(0, MAX_ACCOUNT_LENGTH);
 
@@ -69,6 +70,21 @@ export async function connectIntegration(
       .slice(0, MAX_ACCOUNT_LENGTH);
 
   const config: Record<string, string> = {};
+
+  // amoCRM: до сохранения проверяем, что домен и токен рабочие — «просто связь».
+  // Нет смысла помечать «подключено», если доступа на самом деле нет.
+  if (provider.key === "amocrm") {
+    if (!account) {
+      return { error: "Укажите адрес аккаунта amoCRM (например mycompany.amocrm.ru).", saved: false };
+    }
+    account = normalizeAmoDomain(account);
+    const verified = await verifyAmoCrmAccess(account, secret);
+    if (!verified.ok) {
+      return { error: verified.error ?? "Не удалось подключиться к amoCRM.", saved: false };
+    }
+    if (verified.name) config.name = verified.name;
+  }
+
   if (account) config.account = account;
   if (provider.extraKey && extra) config[provider.extraKey] = extra;
 
