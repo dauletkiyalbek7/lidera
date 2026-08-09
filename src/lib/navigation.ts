@@ -188,7 +188,7 @@ export const NAV_BLOCKS: readonly NavBlock[] = [
         title: "Анализ звонков",
         summary: "AI-оценка звонков менеджеров и продажников",
         icon: "calls",
-        stage: "later",
+        stage: "ready",
         path: "call-analysis",
         niches: ALL_NICHES,
         plan: [

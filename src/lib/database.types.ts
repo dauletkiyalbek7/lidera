@@ -669,6 +669,78 @@ export type Database = {
           },
         ]
       }
+      calls: {
+        Row: {
+          analyzed_at: string | null
+          breakdown: Json | null
+          created_at: string
+          direction: string | null
+          duration_sec: number
+          employee_id: string | null
+          external_id: string | null
+          external_source: string | null
+          id: string
+          phone: string | null
+          project_id: string
+          recording_url: string | null
+          score: number | null
+          status: string
+          summary: string | null
+          transcript: string | null
+        }
+        Insert: {
+          analyzed_at?: string | null
+          breakdown?: Json | null
+          created_at?: string
+          direction?: string | null
+          duration_sec?: number
+          employee_id?: string | null
+          external_id?: string | null
+          external_source?: string | null
+          id?: string
+          phone?: string | null
+          project_id: string
+          recording_url?: string | null
+          score?: number | null
+          status?: string
+          summary?: string | null
+          transcript?: string | null
+        }
+        Update: {
+          analyzed_at?: string | null
+          breakdown?: Json | null
+          created_at?: string
+          direction?: string | null
+          duration_sec?: number
+          employee_id?: string | null
+          external_id?: string | null
+          external_source?: string | null
+          id?: string
+          phone?: string | null
+          project_id?: string
+          recording_url?: string | null
+          score?: number | null
+          status?: string
+          summary?: string | null
+          transcript?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calls_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       creatives: {
         Row: {
           ad_set_id: string | null
