@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireProjectContext } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
-import { rubricFromForm } from "@/lib/call-rubric";
+import { rubricFromForm, rubricIsEmpty } from "@/lib/call-rubric";
 import type { Json } from "@/lib/database.types";
 
 export type RubricState = { message: string | null; error: string | null };
@@ -36,8 +36,11 @@ export async function setCallRubric(
   const language = String(formData.get("language") ?? "kk");
   const rubric = rubricFromForm(labels, weights, script, language);
 
-  if (rubric.criteria.length === 0) {
-    return { message: null, error: "Добавьте хотя бы один критерий с весом." };
+  if (rubricIsEmpty(rubric)) {
+    return {
+      message: null,
+      error: "Задайте критерии с весами или опишите правила текстом.",
+    };
   }
 
   const admin = createSupabaseAdminClient();

@@ -114,16 +114,24 @@ export function RubricEditor({ projectId, rubric }: { projectId: string; rubric:
             </span>
           </label>
 
+          <p className="rounded-[10px] bg-canvas px-3 py-2 text-[12px] leading-relaxed text-muted">
+            Два способа: разбить оценку <b>по критериям с весами</b> — тогда будет разбор по
+            каждому; или просто <b>описать все правила текстом</b> ниже (без критериев) — тогда
+            система оценит звонок целиком от 0 до 100 по вашему тексту.
+          </p>
+
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-faint">
-                Критерии и веса
+                Критерии и веса (необязательно)
               </span>
-              <span
-                className={`tabular text-[12px] ${total === 100 ? "text-brand-700" : "text-amber-700"}`}
-              >
-                Сумма: {total}/100
-              </span>
+              {rows.length > 0 ? (
+                <span
+                  className={`tabular text-[12px] ${total === 100 ? "text-brand-700" : "text-amber-700"}`}
+                >
+                  Сумма: {total}/100
+                </span>
+              ) : null}
             </div>
 
             {rows.map((row, i) => (
@@ -165,16 +173,21 @@ export function RubricEditor({ projectId, rubric }: { projectId: string; rubric:
                 <Icon name="plus" className="h-3.5 w-3.5" /> Добавить критерий
               </button>
             ) : null}
-            {total !== 100 ? (
+            {rows.length > 0 && total !== 100 ? (
               <p className="text-[11.5px] text-amber-700">
                 Лучше, чтобы сумма весов была 100 — тогда балл будет по шкале 0–100.
+              </p>
+            ) : null}
+            {rows.length === 0 ? (
+              <p className="text-[11.5px] text-muted">
+                Критериев нет — оценка пойдёт по тексту правил ниже (шкала 0–100).
               </p>
             ) : null}
           </div>
 
           <label className="flex flex-col gap-1">
             <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-faint">
-              Скрипт и правила (необязательно)
+              Правила и скрипт (можно всё одним текстом)
             </span>
             <textarea
               name="script"

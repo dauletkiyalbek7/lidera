@@ -48,9 +48,18 @@ export const MAX_CRITERIA = 12;
 const MAX_LABEL = 120;
 const MAX_SCRIPT = 6000;
 
-/** Сумма весов — верхняя граница шкалы (в идеале 100). */
+/**
+ * Верхняя граница шкалы. Есть критерии — сумма их весов; нет (правила заданы
+ * одним текстом) — 100, оценка целостная.
+ */
 export function rubricMaxScore(rubric: CallRubric): number {
+  if (rubric.criteria.length === 0) return 100;
   return rubric.criteria.reduce((sum, c) => sum + (c.weight || 0), 0);
+}
+
+/** Пустая рубрика — нечего оценивать (ни критериев, ни текста правил). */
+export function rubricIsEmpty(rubric: CallRubric): boolean {
+  return rubric.criteria.length === 0 && !rubric.script.trim();
 }
 
 /**
@@ -74,13 +83,13 @@ export function normalizeRubric(raw: unknown): CallRubric {
     : [];
 
   const language = asLanguage((raw as { language?: unknown }).language);
-  if (criteria.length === 0) return { ...DEFAULT_RUBRIC, language };
+  const script = typeof obj.script === "string" ? obj.script.slice(0, MAX_SCRIPT) : "";
 
-  return {
-    script: typeof obj.script === "string" ? obj.script.slice(0, MAX_SCRIPT) : "",
-    criteria,
-    language,
-  };
+  // Нет критериев и нет текста правил — отдаём дефолтную рубрику. Но если правила
+  // заданы одним текстом (без критериев) — это валидный текстовый режим, храним как есть.
+  if (criteria.length === 0 && !script.trim()) return { ...DEFAULT_RUBRIC, language };
+
+  return { script, criteria, language };
 }
 
 /** Собирает рубрику из формы (пары criteria_label[]/criteria_weight[]). */

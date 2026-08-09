@@ -101,13 +101,25 @@ function buildSystemPrompt(rubric: CallRubric): string {
   );
 }
 
-/** Оценка транскрипта по правилам проекта. DeepSeek предпочтителен, иначе OpenAI. */
-async function score(
-  transcript: string,
-  durationSec: number,
-  keys: AiKeys,
-  rubric: CallRubric,
-): Promise<CallScore> {
+/** Общий язык-контекст: звонок может быть на казахском/смешанном. */
+const LANGUAGE_NOTE =
+  "Разговор может быть на казахском языке или со смешением казахского и русского — " +
+  "понимай смысл на обоих языках и оценивай по сути сказанного, а не по языку. ";
+
+/** Промпт для текстового режима: все правила одним текстом, целостная оценка 0..100. */
+function buildHolisticPrompt(rubric: CallRubric): string {
+  return (
+    "Ты — руководитель отдела продаж. " +
+    LANGUAGE_NOTE +
+    "Оцени звонок менеджера от 0 до 100 по правилам отдела продаж ниже. " +
+    "Учитывай, насколько менеджер их соблюдал.\n\nПРАВИЛА:\n" +
+    rubric.script.trim() +
+    '\n\nВерни СТРОГО JSON без пояснений: {"score": число 0-100, ' +
+    '"summary": "2-3 предложения по-русски: что хорошо и что нарушено по правилам"}.'
+  );
+}
+
+async function callModel(keys: AiKeys, system: string, user: string): Promise<Record<string, unknown>> {
   const useDeepseek = Boolean(keys.deepseek);
   const url = useDeepseek
     ? "https://api.deepseek.com/chat/completions"
@@ -123,11 +135,8 @@ async function score(
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: buildSystemPrompt(rubric) },
-          {
-            role: "user",
-            content: `Длительность звонка: ${durationSec} сек.\nТранскрипт:\n${transcript}`,
-          },
+          { role: "system", content: system },
+          { role: "user", content: user },
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,
@@ -138,18 +147,44 @@ async function score(
 
   if (!res) throw new AiError("AI не ответил при оценке (таймаут).");
   if (!res.ok) throw new AiError(`AI-оценка: ошибка ${res.status}.`);
-
   const json = (await res.json().catch(() => ({}))) as {
     choices?: { message?: { content?: string } }[];
   };
-  const content = json.choices?.[0]?.message?.content ?? "{}";
-  let parsed: { scores?: Record<string, unknown>; notes?: Record<string, unknown>; summary?: unknown };
   try {
-    parsed = JSON.parse(content);
+    return JSON.parse(json.choices?.[0]?.message?.content ?? "{}");
   } catch {
     throw new AiError("AI вернул неразборчивый ответ.");
   }
+}
 
+/** Оценка транскрипта по правилам проекта. DeepSeek предпочтителен, иначе OpenAI. */
+async function score(
+  transcript: string,
+  durationSec: number,
+  keys: AiKeys,
+  rubric: CallRubric,
+): Promise<CallScore> {
+  const user = `Длительность звонка: ${durationSec} сек.\nТранскрипт:\n${transcript}`;
+
+  // Текстовый режим: критериев нет, правила заданы одним текстом — целостная оценка.
+  if (rubric.criteria.length === 0) {
+    const parsed = await callModel(keys, buildHolisticPrompt(rubric), user);
+    return {
+      transcript,
+      score: clampInt(parsed.score, 100),
+      maxScore: 100,
+      breakdown: {},
+      notes: {},
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+    };
+  }
+
+  // Режим критериев: балл по каждому + обоснование.
+  const parsed = (await callModel(keys, buildSystemPrompt(rubric), user)) as {
+    scores?: Record<string, unknown>;
+    notes?: Record<string, unknown>;
+    summary?: unknown;
+  };
   const scores = parsed.scores ?? {};
   const rawNotes = parsed.notes ?? {};
   const breakdown: Record<string, number> = {};
