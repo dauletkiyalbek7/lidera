@@ -47,20 +47,16 @@ export type MetaDailyInsight = {
 export type MetaAction = { action_type: string; value: string | number };
 
 /**
- * Заявки с лид-форм и с сайта. Meta присылает их сразу несколькими типами,
- * которые пересекаются между собой, поэтому берём максимум, а не сумму.
+ * Все типы действий, которые Meta может считать «результатом»-заявкой:
+ * лиды с формы, лиды с сайта (пиксель) и начатые переписки (WhatsApp/Direct).
+ * У кампании на лиды результат — форма/сайт; у кампании на переписку — переписки;
+ * поля lead у неё вообще нет. Эти типы у Meta пересекаются и являются РАЗНЫМИ
+ * названиями одного «Результата», а не слагаемыми, — поэтому берём максимум.
  */
-const FORM_LEAD_ACTIONS = [
+const LEAD_ACTIONS = [
   "lead",
   "onsite_conversion.lead_grouped",
   "offsite_conversion.fb_pixel_lead",
-] as const;
-
-/**
- * Начатые переписки. Для кампаний на WhatsApp и Direct это и есть заявка:
- * поля lead у них нет вообще, и без этой строки половина лидов теряется.
- */
-const MESSAGING_LEAD_ACTIONS = [
   "onsite_conversion.messaging_conversation_started_7d",
 ] as const;
 
@@ -76,22 +72,16 @@ function actionValue(actions: readonly MetaAction[], type: string): number {
 }
 
 /**
- * Лиды дня по кампании: заявки плюс переписки.
- * Пересекающиеся типы схлопываем максимумом, непересекающиеся складываем.
+ * Лиды дня как единый «Результат» кампании: берём максимум по всем лидоподобным
+ * типам, а не сумму. У кампании на лиды сработает форма/сайт, у кампании на
+ * переписку — переписки; складывать их нельзя — это задваивает результат
+ * (лиды с сайта + попутные переписки в кабинете показываются как один результат).
  */
 export function countLeads(actions: readonly MetaAction[] | undefined): number {
   if (!actions || actions.length === 0) return 0;
 
-  const formLeads = Math.max(
-    ...FORM_LEAD_ACTIONS.map((type) => actionValue(actions, type)),
-    0,
-  );
-  const messaging = MESSAGING_LEAD_ACTIONS.reduce(
-    (sum, type) => sum + actionValue(actions, type),
-    0,
-  );
-
-  return Math.round(formLeads + messaging);
+  const leads = Math.max(...LEAD_ACTIONS.map((type) => actionValue(actions, type)), 0);
+  return Math.round(leads);
 }
 
 /** Бюджеты приходят в минорных единицах: 2500 означает 25,00 $. */
