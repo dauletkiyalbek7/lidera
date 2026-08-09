@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { startOfPreviousMonth, today } from "@/lib/date-range";
+import { addDays, startOfPreviousMonth, today } from "@/lib/date-range";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { Database } from "@/lib/database.types";
 import type { IntegrationCredentials } from "@/lib/queries/integrations";
@@ -37,6 +37,13 @@ export type MetaSyncInput = {
   credentials: IntegrationCredentials;
   /** Кто запустил: id человека или null, если это расписание. */
   actorId: string | null;
+  /**
+   * Быстрое обновление: тянем расход только за сегодня и вчера и НЕ переопрашиваем
+   * тысячи сущностей (кампании/группы/объявления берём из базы). Такой запрос лёгкий
+   * и не ловит лимит Meta — им живёт кнопка «Обновить», чтобы текущий расход совпадал
+   * с кабинетом. Полный синк (весь месяц + сущности) идёт по расписанию.
+   */
+  quick?: boolean;
 };
 
 export async function runMetaSync({
@@ -46,6 +53,7 @@ export async function runMetaSync({
   adSpendRate,
   credentials,
   actorId,
+  quick = false,
 }: MetaSyncInput): Promise<AdsSyncResult> {
   if (!credentials.account) {
     return {
@@ -54,29 +62,39 @@ export async function runMetaSync({
     };
   }
 
-  // Окно всегда захватывает прошлый и текущий месяц целиком: от первого числа
-  // прошлого месяца до сегодня. Старые дни из базы не удаляем (upsert), поэтому
-  // при смене месяца прошлые месяцы остаются, а окно едет вперёд само.
+  // Полный синк: окно захватывает прошлый и текущий месяц целиком (от первого числа
+  // прошлого месяца до сегодня), старые дни не удаляем (upsert). Быстрое обновление:
+  // только сегодня и вчера — «вчера» на случай, что кабинет живёт в своём часовом
+  // поясе и на границе суток сегодняшняя строка ещё числится вчерашней.
   const until = today();
-  const since = startOfPreviousMonth(until);
+  const since = quick ? addDays(until, -1) : startOfPreviousMonth(until);
 
   let account;
-  let campaigns;
+  let campaigns: Awaited<ReturnType<typeof fetchCampaigns>> = [];
   let insights;
-  let adSets;
+  let adSets: Awaited<ReturnType<typeof fetchAdSets>> = [];
   let adSetInsights;
-  let ads;
+  let ads: Awaited<ReturnType<typeof fetchAds>> = [];
   let adInsights;
   try {
     account = await fetchAccount(credentials.token, credentials.account);
-    [campaigns, insights, adSets, adSetInsights, ads, adInsights] = await Promise.all([
-      fetchCampaigns(credentials.token, credentials.account),
-      fetchDailyInsights(credentials.token, credentials.account, since, until),
-      fetchAdSets(credentials.token, credentials.account),
-      fetchAdSetDailyInsights(credentials.token, credentials.account, since, until),
-      fetchAds(credentials.token, credentials.account),
-      fetchAdDailyInsights(credentials.token, credentials.account, since, until),
-    ]);
+    if (quick) {
+      // Сущности не трогаем — их id берём из базы. Тянем только дневную статистику.
+      [insights, adSetInsights, adInsights] = await Promise.all([
+        fetchDailyInsights(credentials.token, credentials.account, since, until),
+        fetchAdSetDailyInsights(credentials.token, credentials.account, since, until),
+        fetchAdDailyInsights(credentials.token, credentials.account, since, until),
+      ]);
+    } else {
+      [campaigns, insights, adSets, adSetInsights, ads, adInsights] = await Promise.all([
+        fetchCampaigns(credentials.token, credentials.account),
+        fetchDailyInsights(credentials.token, credentials.account, since, until),
+        fetchAdSets(credentials.token, credentials.account),
+        fetchAdSetDailyInsights(credentials.token, credentials.account, since, until),
+        fetchAds(credentials.token, credentials.account),
+        fetchAdDailyInsights(credentials.token, credentials.account, since, until),
+      ]);
+    }
   } catch (error) {
     const reason =
       error instanceof MetaApiError ? error.message : "Meta не ответила. Попробуйте позже.";
@@ -146,6 +164,17 @@ export async function runMetaSync({
     if (error) {
       return { error: "Не удалось сохранить статистику кампаний.", message: null };
     }
+
+    // В быстром режиме кампании не переопрашиваем, поэтому их synced_at не двигался бы,
+    // а метка «обновлено» и проверка свежести на экране замерли бы. Двигаем время у
+    // кампаний с сегодняшним расходом — их немного, запись дешёвая.
+    if (quick) {
+      const activeIds = [...new Set(rows.map((row) => row.campaign_id))];
+      await supabase
+        .from("ad_campaigns")
+        .update({ synced_at: new Date().toISOString() })
+        .in("id", activeIds);
+    }
   }
 
   // Группы объявлений: средний уровень, на нём же назначение трафика.
@@ -173,7 +202,11 @@ export async function runMetaSync({
     if (error) {
       return { error: `Не удалось сохранить группы объявлений: ${error.message}`, message: null };
     }
+  }
 
+  // Карту id групп читаем из базы всегда: в быстром режиме сущности не переопрашиваем,
+  // но статистике групп нужен внутренний id.
+  if (adSetInsights.length > 0) {
     const storedSets = await fetchAllRows((from, to) =>
       supabase
         .from("ad_sets")
@@ -247,7 +280,7 @@ export async function runMetaSync({
     creativesSaved = ads.length;
   }
 
-  if (creativesSaved > 0 && adInsights.length > 0) {
+  if (adInsights.length > 0) {
     // Страницами: объявлений тысячи. За лимитом в 1000 карта была неполной, и
     // дневная статистика для остальных креативов молча не сохранялась.
     const storedCreatives = await fetchAllRows((from, to) =>
@@ -329,9 +362,10 @@ export async function runMetaSync({
   await supabase.from("activity_log").insert({
     project_id: projectId,
     actor_id: actorId,
-    action: "ads.synced",
+    action: quick ? "ads.synced_today" : "ads.synced",
     details: {
       platform: "meta",
+      quick,
       campaigns: campaigns.length,
       creatives: creativesSaved,
       days: daysUpdated,
@@ -343,11 +377,11 @@ export async function runMetaSync({
   const rateNote =
     rate === 1 ? "" : ` Расход пересчитан по курсу ${rate} за 1 ${account.currency}.`;
 
-  return {
-    error: null,
-    message:
-      `Кабинет «${account.name}»: кампаний ${campaigns.length}, ` +
+  const message = quick
+    ? `Кабинет «${account.name}»: обновлён текущий расход за ${daysUpdated} дн.${rateNote}`
+    : `Кабинет «${account.name}»: кампаний ${campaigns.length}, ` +
       `групп ${adSets.length}, объявлений ${creativesSaved}, ` +
-      `дней статистики ${daysUpdated}.${rateNote}`,
-  };
+      `дней статистики ${daysUpdated}.${rateNote}`;
+
+  return { error: null, message };
 }

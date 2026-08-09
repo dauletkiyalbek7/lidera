@@ -62,6 +62,9 @@ export async function POST(
     return NextResponse.json({ error: "Meta Ads не подключена." }, { status: 409 });
   }
 
+  // С экрана — быстрое обновление: только текущий расход (сегодня/вчера) без переопроса
+  // тысяч сущностей. Такой запрос лёгкий, не упирается в лимит Meta и даёт цифру как в
+  // кабинете. Полный синк (весь месяц + кампании/группы/объявления) идёт по расписанию.
   const result = await runMetaSync({
     supabase,
     projectId,
@@ -69,6 +72,7 @@ export async function POST(
     adSpendRate: Number(project.ad_spend_rate),
     credentials,
     actorId: user.id,
+    quick: true,
   });
 
   // Обновляем паузу по итогу: ошибка — ставим остывание; успех — снимаем.
