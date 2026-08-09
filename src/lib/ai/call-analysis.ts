@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { AiKeys } from "@/lib/ai/keys";
-import { rubricMaxScore, type CallRubric } from "@/lib/call-rubric";
+import { rubricMaxScore, type CallLanguage, type CallRubric } from "@/lib/call-rubric";
 
 /**
  * AI-оценка звонка (ТЗ, Блок 2: «Анализ звонков»).
@@ -38,7 +38,11 @@ async function withTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<
 }
 
 /** Скачиваем запись и отдаём в Whisper. Возвращаем текст разговора. */
-async function transcribe(recordingUrl: string, openaiKey: string): Promise<string> {
+async function transcribe(
+  recordingUrl: string,
+  openaiKey: string,
+  language: CallLanguage,
+): Promise<string> {
   const audio = await withTimeout(TRANSCRIBE_TIMEOUT_MS, (signal) =>
     fetch(recordingUrl, { signal, cache: "no-store" }),
   ).catch(() => null);
@@ -48,6 +52,10 @@ async function transcribe(recordingUrl: string, openaiKey: string): Promise<stri
   const form = new FormData();
   form.append("file", blob, "call.mp3");
   form.append("model", "whisper-1");
+  // Подсказка языка резко повышает качество распознавания. Для «авто» не задаём —
+  // Whisper определит сам (полезно при смешении казахского и русского).
+  if (language !== "auto") form.append("language", language);
+  form.append("temperature", "0");
 
   const res = await withTimeout(TRANSCRIBE_TIMEOUT_MS, (signal) =>
     fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -79,13 +87,16 @@ function buildSystemPrompt(rubric: CallRubric): string {
     ? `\n\nСкрипт и правила, которые менеджер обязан соблюдать (сверяй разговор с ними):\n${rubric.script.trim()}`
     : "";
   return (
-    "Ты — руководитель отдела продаж. Оцени звонок менеджера СТРОГО по правилам этого " +
+    "Ты — руководитель отдела продаж. Разговор может быть на казахском языке или " +
+    "со смешением казахского и русского — понимай смысл на обоих языках и оценивай " +
+    "по сути сказанного, а не по языку. Оцени звонок менеджера СТРОГО по правилам этого " +
     "проекта. Критерии (ставь балл за каждый, не больше его максимума):\n" +
     criteria +
     script +
     '\n\nВерни СТРОГО JSON без пояснений: {"scores": {"<ключ критерия>": число, ...}, ' +
     '"notes": {"<ключ критерия>": "одна короткая фраза, почему такой балл"}, ' +
-    '"summary": "2-3 предложения на русском: что хорошо и что улучшить"}. ' +
+    '"summary": "2-3 предложения: что хорошо и что улучшить"}. ' +
+    "notes и summary пиши ПО-РУССКИ, даже если звонок на казахском. " +
     "Используй ровно те ключи критериев, что даны выше."
   );
 }
@@ -176,7 +187,7 @@ export async function analyzeCall({
   if (!keys.openai) {
     throw new AiError("Нет ключа OpenAI — им делается транскрипция. Подключите ключ в «Интеграциях».");
   }
-  const transcript = await transcribe(recordingUrl, keys.openai);
+  const transcript = await transcribe(recordingUrl, keys.openai, rubric.language);
   if (!transcript) throw new AiError("Транскрипт пустой — проверьте, что по ссылке есть запись.");
   return score(transcript, durationSec, keys, rubric);
 }

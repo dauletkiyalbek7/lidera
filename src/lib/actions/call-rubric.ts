@@ -33,7 +33,8 @@ export async function setCallRubric(
   const labels = formData.getAll("criteria_label").map((v) => String(v));
   const weights = formData.getAll("criteria_weight").map((v) => String(v));
   const script = String(formData.get("script") ?? "");
-  const rubric = rubricFromForm(labels, weights, script);
+  const language = String(formData.get("language") ?? "kk");
+  const rubric = rubricFromForm(labels, weights, script, language);
 
   if (rubric.criteria.length === 0) {
     return { message: null, error: "Добавьте хотя бы один критерий с весом." };

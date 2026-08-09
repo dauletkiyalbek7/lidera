@@ -4,7 +4,13 @@ import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 import { setCallRubric, type RubricState } from "@/lib/actions/call-rubric";
-import { MAX_CRITERIA, type CallRubric, type RubricCriterion } from "@/lib/call-rubric";
+import {
+  CALL_LANGUAGES,
+  MAX_CRITERIA,
+  type CallLanguage,
+  type CallRubric,
+  type RubricCriterion,
+} from "@/lib/call-rubric";
 import { buttonClass } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 
@@ -32,6 +38,7 @@ export function RubricEditor({ projectId, rubric }: { projectId: string; rubric:
     rubric.criteria.map((c: RubricCriterion) => ({ label: c.label, weight: c.weight })),
   );
   const [script, setScript] = useState(rubric.script);
+  const [language, setLanguage] = useState<CallLanguage>(rubric.language);
 
   useEffect(() => {
     if (state.message && !state.error) setOpen(false);
@@ -85,6 +92,27 @@ export function RubricEditor({ projectId, rubric }: { projectId: string; rubric:
 
         <form action={formAction} className="flex flex-col gap-4 px-5 py-5">
           <input type="hidden" name="project_id" value={projectId} />
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-faint">
+              Язык звонков
+            </span>
+            <select
+              name="language"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as CallLanguage)}
+              className={inputClass}
+            >
+              {CALL_LANGUAGES.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-[11px] text-faint">
+              На каком языке говорят менеджеры — подсказка для расшифровки записи.
+            </span>
+          </label>
 
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
