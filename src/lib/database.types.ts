@@ -745,6 +745,8 @@ export type Database = {
       customers: {
         Row: {
           created_at: string
+          external_id: string | null
+          external_source: string | null
           first_purchase_at: string | null
           full_name: string
           id: string
@@ -754,6 +756,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          external_id?: string | null
+          external_source?: string | null
           first_purchase_at?: string | null
           full_name: string
           id?: string
@@ -763,6 +767,8 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          external_id?: string | null
+          external_source?: string | null
           first_purchase_at?: string | null
           full_name?: string
           id?: string
@@ -1443,6 +1449,8 @@ export type Database = {
           created_at: string
           creative_id: string | null
           customer_id: string | null
+          external_id: string | null
+          external_source: string | null
           id: string
           lead_id: string | null
           product: string | null
@@ -1459,6 +1467,8 @@ export type Database = {
           created_at?: string
           creative_id?: string | null
           customer_id?: string | null
+          external_id?: string | null
+          external_source?: string | null
           id?: string
           lead_id?: string | null
           product?: string | null
@@ -1475,6 +1485,8 @@ export type Database = {
           created_at?: string
           creative_id?: string | null
           customer_id?: string | null
+          external_id?: string | null
+          external_source?: string | null
           id?: string
           lead_id?: string | null
           product?: string | null
