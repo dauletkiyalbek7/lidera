@@ -7,6 +7,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { hasServiceRoleKey } from "@/lib/queries/employees";
 import { resolveAiKeys } from "@/lib/ai/keys";
 import { analyzeCall, AiError } from "@/lib/ai/call-analysis";
+import { loadCallRubric } from "@/lib/queries/call-rubric";
 import type { Json } from "@/lib/database.types";
 
 /** Оценивать звонки может руководитель отдела продаж и выше. */
@@ -34,19 +35,31 @@ async function analyzeAndSave(
 
   await admin.from("calls").update({ status: "analyzing" }).eq("id", callId);
 
-  const keys = await resolveAiKeys(projectId);
+  const [keys, rubric] = await Promise.all([
+    resolveAiKeys(projectId),
+    loadCallRubric(projectId),
+  ]);
   try {
     const result = await analyzeCall({
       recordingUrl: call.recording_url,
       durationSec: call.duration_sec,
       keys,
+      rubric,
     });
+    // В breakdown кладём и баллы, и обоснования, и рубрику на момент оценки —
+    // чтобы разбор читался даже после правки правил проекта.
+    const breakdown = {
+      scores: result.breakdown,
+      notes: result.notes,
+      max: result.maxScore,
+      criteria: rubric.criteria,
+    };
     await admin
       .from("calls")
       .update({
         transcript: result.transcript,
         score: result.score,
-        breakdown: result.breakdown as unknown as Json,
+        breakdown: breakdown as unknown as Json,
         summary: result.summary,
         status: "done",
         analyzed_at: new Date().toISOString(),

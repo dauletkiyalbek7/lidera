@@ -1,12 +1,14 @@
 import "server-only";
 
 import type { AiKeys } from "@/lib/ai/keys";
+import { rubricMaxScore, type CallRubric } from "@/lib/call-rubric";
 
 /**
  * AI-оценка звонка (ТЗ, Блок 2: «Анализ звонков»).
  * Два шага: транскрипция (OpenAI Whisper — только у OpenAI есть речь-в-текст)
- * и оценка разговора по рубрике (DeepSeek, если ключ есть — он дешевле; иначе
- * OpenAI). Возвращает балл 0..100, разбивку и краткое резюме на русском.
+ * и оценка разговора ПО ПРАВИЛАМ ПРОЕКТА (критерии + скрипт задаёт отдел продаж).
+ * Оценивает DeepSeek, если есть ключ (дешевле), иначе OpenAI. Возвращает балл,
+ * разбивку по критериям, короткие обоснования и резюме на русском.
  */
 
 export class AiError extends Error {}
@@ -14,17 +16,14 @@ export class AiError extends Error {}
 const TRANSCRIBE_TIMEOUT_MS = 55_000;
 const SCORE_TIMEOUT_MS = 40_000;
 
-export type CallBreakdown = {
-  greeting: number; // приветствие и установление контакта, 0..20
-  needs: number; // выявление потребности, 0..25
-  structure: number; // структура и презентация, 0..25
-  closing: number; // работа с возражениями и закрытие, 0..30
-};
-
 export type CallScore = {
   transcript: string;
   score: number;
-  breakdown: CallBreakdown;
+  maxScore: number;
+  /** Балл по каждому критерию: ключ критерия → число. */
+  breakdown: Record<string, number>;
+  /** Короткое обоснование по критерию: ключ → фраза. */
+  notes: Record<string, string>;
   summary: string;
 };
 
@@ -65,22 +64,39 @@ async function transcribe(recordingUrl: string, openaiKey: string): Promise<stri
   return (json.text ?? "").trim();
 }
 
-const RUBRIC =
-  "Ты — руководитель отдела продаж. Оцени звонок менеджера по транскрипту. " +
-  "Верни СТРОГО JSON без пояснений: " +
-  '{"greeting": число 0-20, "needs": число 0-25, "structure": число 0-25, ' +
-  '"closing": число 0-30, "summary": "2-3 предложения на русском: что хорошо и что улучшить"}. ' +
-  "greeting — приветствие и контакт; needs — выявление потребности; " +
-  "structure — структура и презентация; closing — работа с возражениями и закрытие/следующий шаг.";
-
 function clampInt(value: unknown, max: number): number {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.min(n, max);
 }
 
-/** Оценка транскрипта. DeepSeek предпочтителен (дешевле), иначе OpenAI. */
-async function score(transcript: string, durationSec: number, keys: AiKeys): Promise<CallScore> {
+/** Системный промпт из правил проекта: критерии с максимумами + скрипт. */
+function buildSystemPrompt(rubric: CallRubric): string {
+  const criteria = rubric.criteria
+    .map((c) => `- ключ "${c.key}" (${c.label}) — максимум ${c.weight} баллов`)
+    .join("\n");
+  const script = rubric.script.trim()
+    ? `\n\nСкрипт и правила, которые менеджер обязан соблюдать (сверяй разговор с ними):\n${rubric.script.trim()}`
+    : "";
+  return (
+    "Ты — руководитель отдела продаж. Оцени звонок менеджера СТРОГО по правилам этого " +
+    "проекта. Критерии (ставь балл за каждый, не больше его максимума):\n" +
+    criteria +
+    script +
+    '\n\nВерни СТРОГО JSON без пояснений: {"scores": {"<ключ критерия>": число, ...}, ' +
+    '"notes": {"<ключ критерия>": "одна короткая фраза, почему такой балл"}, ' +
+    '"summary": "2-3 предложения на русском: что хорошо и что улучшить"}. ' +
+    "Используй ровно те ключи критериев, что даны выше."
+  );
+}
+
+/** Оценка транскрипта по правилам проекта. DeepSeek предпочтителен, иначе OpenAI. */
+async function score(
+  transcript: string,
+  durationSec: number,
+  keys: AiKeys,
+  rubric: CallRubric,
+): Promise<CallScore> {
   const useDeepseek = Boolean(keys.deepseek);
   const url = useDeepseek
     ? "https://api.deepseek.com/chat/completions"
@@ -96,7 +112,7 @@ async function score(transcript: string, durationSec: number, keys: AiKeys): Pro
       body: JSON.stringify({
         model,
         messages: [
-          { role: "system", content: RUBRIC },
+          { role: "system", content: buildSystemPrompt(rubric) },
           {
             role: "user",
             content: `Длительность звонка: ${durationSec} сек.\nТранскрипт:\n${transcript}`,
@@ -116,25 +132,32 @@ async function score(transcript: string, durationSec: number, keys: AiKeys): Pro
     choices?: { message?: { content?: string } }[];
   };
   const content = json.choices?.[0]?.message?.content ?? "{}";
-  let parsed: Record<string, unknown>;
+  let parsed: { scores?: Record<string, unknown>; notes?: Record<string, unknown>; summary?: unknown };
   try {
     parsed = JSON.parse(content);
   } catch {
     throw new AiError("AI вернул неразборчивый ответ.");
   }
 
-  const breakdown: CallBreakdown = {
-    greeting: clampInt(parsed.greeting, 20),
-    needs: clampInt(parsed.needs, 25),
-    structure: clampInt(parsed.structure, 25),
-    closing: clampInt(parsed.closing, 30),
-  };
-  const total = breakdown.greeting + breakdown.needs + breakdown.structure + breakdown.closing;
+  const scores = parsed.scores ?? {};
+  const rawNotes = parsed.notes ?? {};
+  const breakdown: Record<string, number> = {};
+  const notes: Record<string, string> = {};
+  let total = 0;
+  for (const criterion of rubric.criteria) {
+    const value = clampInt(scores[criterion.key], criterion.weight);
+    breakdown[criterion.key] = value;
+    total += value;
+    const note = rawNotes[criterion.key];
+    if (typeof note === "string" && note.trim()) notes[criterion.key] = note.trim();
+  }
 
   return {
     transcript,
     score: total,
+    maxScore: rubricMaxScore(rubric),
     breakdown,
+    notes,
     summary: typeof parsed.summary === "string" ? parsed.summary : "",
   };
 }
@@ -143,15 +166,17 @@ export async function analyzeCall({
   recordingUrl,
   durationSec,
   keys,
+  rubric,
 }: {
   recordingUrl: string;
   durationSec: number;
   keys: AiKeys;
+  rubric: CallRubric;
 }): Promise<CallScore> {
   if (!keys.openai) {
     throw new AiError("Нет ключа OpenAI — им делается транскрипция. Подключите ключ в «Интеграциях».");
   }
   const transcript = await transcribe(recordingUrl, keys.openai);
   if (!transcript) throw new AiError("Транскрипт пустой — проверьте, что по ссылке есть запись.");
-  return score(transcript, durationSec, keys);
+  return score(transcript, durationSec, keys, rubric);
 }

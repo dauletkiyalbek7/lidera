@@ -10,10 +10,21 @@ import { readDateRange } from "@/lib/date-range";
 import { formatDateRange, formatDateTime, formatNumber } from "@/lib/format";
 import { resolveAiKeys } from "@/lib/ai/keys";
 import { loadCalls } from "@/lib/queries/calls";
+import { loadCallRubric } from "@/lib/queries/call-rubric";
+import { rubricMaxScore } from "@/lib/call-rubric";
 import type { Tables } from "@/lib/database.types";
 
 import { AddCallButton } from "./add-call";
 import { AnalyzeButton } from "./analyze-button";
+import { RubricEditor } from "./rubric-editor";
+
+/** Разбор из calls.breakdown: баллы, обоснования и рубрика на момент оценки. */
+type StoredBreakdown = {
+  scores?: Record<string, number>;
+  notes?: Record<string, string>;
+  max?: number;
+  criteria?: { key: string; label: string; weight: number }[];
+};
 
 /** Длительность звонка в «м:сс». */
 function fmtDuration(sec: number): string {
@@ -40,13 +51,15 @@ export default async function CallAnalysisPage({
   const { projectId } = await params;
   const range = readDateRange(await searchParams);
 
-  const [{ role, canManage }, calls, keys] = await Promise.all([
+  const [{ role, canManage }, calls, keys, rubric] = await Promise.all([
     requireSectionAccess(projectId, "call-analysis"),
     loadCalls(projectId, range),
     resolveAiKeys(projectId),
+    loadCallRubric(projectId),
   ]);
 
   const mayAnalyze = canManage || role === "director" || role === "rop";
+  const rubricMax = rubricMaxScore(rubric);
   const scored = calls.filter((call) => call.status === "done" && call.score !== null);
   const avgScore =
     scored.length > 0
@@ -59,8 +72,8 @@ export default async function CallAnalysisPage({
     {
       key: "avg",
       label: "Средний балл",
-      value: avgScore === null ? "—" : `${avgScore} / 100`,
-      hint: avgScore === null ? undefined : "по оценённым",
+      value: avgScore === null ? "—" : String(avgScore),
+      hint: avgScore === null ? undefined : `из ${rubricMax} · по оценённым`,
     },
   ];
 
@@ -85,18 +98,46 @@ export default async function CallAnalysisPage({
         if (call.status === "failed") return <Badge tone="negative">Сбой</Badge>;
         if (call.score === null || call.status !== "done")
           return <span className="text-faint">—</span>;
-        return <Badge tone={scoreTone(call.score)}>{call.score} / 100</Badge>;
+        const bd = (call.breakdown ?? {}) as StoredBreakdown;
+        const max = bd.max ?? 100;
+        const pct = max > 0 ? (call.score / max) * 100 : 0;
+        return (
+          <Badge tone={scoreTone(pct)}>
+            {call.score} / {max}
+          </Badge>
+        );
       },
     },
     {
       key: "summary",
-      header: "Резюме AI",
+      header: "Резюме и разбор",
       hideOnMobile: true,
-      render: (call) => (
-        <span className="line-clamp-2 max-w-[420px] text-[12.5px] text-muted">
-          {call.summary || "—"}
-        </span>
-      ),
+      render: (call) => {
+        const bd = (call.breakdown ?? {}) as StoredBreakdown;
+        const criteria = bd.criteria ?? [];
+        return (
+          <div className="max-w-[440px]">
+            {call.summary ? (
+              <p className="line-clamp-2 text-[12.5px] text-muted">{call.summary}</p>
+            ) : (
+              <span className="text-faint">—</span>
+            )}
+            {criteria.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {criteria.map((c) => (
+                  <span
+                    key={c.key}
+                    className="tabular rounded-full bg-canvas px-2 py-0.5 text-[11px] text-muted"
+                    title={bd.notes?.[c.key] ?? c.label}
+                  >
+                    {c.label}: {bd.scores?.[c.key] ?? 0}/{c.weight}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        );
+      },
     },
     ...(mayAnalyze
       ? [
@@ -123,6 +164,7 @@ export default async function CallAnalysisPage({
         subtitle={`AI-оценка разговоров · ${formatDateRange(range.from, range.to)}`}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {mayAnalyze ? <RubricEditor projectId={projectId} rubric={rubric} /> : null}
             {mayAnalyze ? <AddCallButton projectId={projectId} /> : null}
             <DateRangePicker
               preset={range.preset}
