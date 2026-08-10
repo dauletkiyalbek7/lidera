@@ -12,6 +12,7 @@ import {
 } from "@/lib/metrics";
 import { loadMembers, loadProducts } from "@/lib/queries/crm";
 import { loadReturnsTotals } from "@/lib/queries/returns";
+import { isVacancyCampaign } from "@/lib/ads/purpose";
 import type { Product } from "@/lib/inventory";
 
 /** Лид считается доведённым до пробного, начиная с этих статусов. */
@@ -45,7 +46,7 @@ async function loadMetricsRows(projectId: string, bounds: Bounds): Promise<Metri
   const supabase = await createSupabaseServerClient();
   const { since, until } = timestampBounds(bounds);
 
-  const [leads, sales, insights] = await Promise.all([
+  const [leads, sales, insights, campaigns] = await Promise.all([
     fetchAllRows((from, to) => {
       let q = supabase.from("leads").select("created_at, status").eq("project_id", projectId);
       if (since) q = q.gte("created_at", since);
@@ -59,12 +60,29 @@ async function loadMetricsRows(projectId: string, bounds: Bounds): Promise<Metri
       return q.order("id").range(from, to);
     }),
     fetchAllRows((from, to) => {
-      let q = supabase.from("ad_insights_daily").select("date, spend").eq("project_id", projectId);
+      let q = supabase
+        .from("ad_insights_daily")
+        .select("date, spend, campaign_id")
+        .eq("project_id", projectId);
       if (bounds.from) q = q.gte("date", bounds.from);
       if (bounds.to) q = q.lte("date", bounds.to);
       return q.order("id").range(from, to);
     }),
+    fetchAllRows((from, to) =>
+      supabase
+        .from("ad_campaigns")
+        .select("id, name")
+        .eq("project_id", projectId)
+        .order("id")
+        .range(from, to),
+    ),
   ]);
+
+  // Кампании найма (вакансии) в экономику курса не мешаем: их расход раздувает
+  // цену лида и занижает прибыль, а заявки соискателей в CRM курса не попадают.
+  const vacancyCampaignIds = new Set(
+    campaigns.filter((c) => isVacancyCampaign(c.name)).map((c) => c.id),
+  );
 
   const byDate = new Map<string, MetricsRow>();
   const ensure = (date: string): MetricsRow => {
@@ -88,6 +106,7 @@ async function loadMetricsRows(projectId: string, bounds: Bounds): Promise<Metri
     row.revenue += Number(sale.amount);
   }
   for (const insight of insights) {
+    if (insight.campaign_id && vacancyCampaignIds.has(insight.campaign_id)) continue;
     ensure(insight.date).ad_spend += Number(insight.spend);
   }
 
