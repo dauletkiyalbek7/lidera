@@ -321,19 +321,44 @@ export default async function AdsPage({
       </nav>
 
       {tab !== "analytics" ? (
-        <section className="card mt-6 flex flex-col items-center gap-3 px-6 py-16 text-center">
-          <span className="inline-flex h-12 w-12 items-center justify-center rounded-[14px] bg-canvas text-muted">
-            <Icon name={tab === "launch" ? "send" : "plug"} className="h-5 w-5" />
-          </span>
-          <h2 className="text-[15px] font-semibold text-ink">
-            {tab === "launch" ? "Запуск рекламы" : "Подключения"}
-          </h2>
-          <p className="max-w-[520px] text-[13px] leading-relaxed text-muted">
-            {tab === "launch"
-              ? "Здесь будут настройки запуска: бюджет, география, возраст, аудитории — и креативы, которые бот отправляет в кабинет сам."
-              : "Здесь будут рекламные кабинеты проекта: какой подключён, кем и когда."}{" "}
-            Раздел ещё не сделан.
-          </p>
+        <section className="card mt-6 p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-canvas text-muted">
+                <Icon name={tab === "launch" ? "send" : "plug"} className="h-6 w-6" />
+              </span>
+              <div>
+                <h2 className="text-[16px] font-semibold text-ink">
+                  {tab === "launch" ? "Запуск рекламы" : "Подключения"}
+                </h2>
+                <p className="mt-1 max-w-[620px] text-[13px] leading-relaxed text-muted">
+                  {tab === "launch"
+                    ? "Отсюда можно будет запускать кампании прямо из платформы, а бот — сам отправлять креативы в кабинет."
+                    : "Здесь соберутся рекламные кабинеты проекта: какой подключён, кем и когда."}
+                </p>
+              </div>
+            </div>
+            <Badge tone="muted">Скоро</Badge>
+          </div>
+
+          <div className="mt-6 border-t border-line pt-5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-faint">
+              Что здесь будет
+            </p>
+            <ul className="mt-3 grid gap-2.5 sm:grid-cols-2">
+              {(tab === "launch"
+                ? ["Бюджет, география и возраст", "Аудитории и таргетинг", "Креативы из платформы", "Автозапуск ботом"]
+                : ["Список рекламных кабинетов", "Кто и когда подключил", "Статус синхронизации", "Meta и TikTok в одном месте"]
+              ).map((item) => (
+                <li key={item} className="flex items-start gap-2.5 text-[13px] text-muted">
+                  <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand">
+                    <Icon name="check" className="h-3 w-3" />
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
         </section>
       ) : (
         <>
